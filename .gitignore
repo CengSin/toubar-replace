@@ -1,0 +1,17 @@
+# Idea Platform secrets (root file contains a branch token)
+/AGENTS.md
+
+# Build artifacts
+ToubarReplace/dist/
+ToubarReplace/.build/
+ToubarReplace/running.log
+website/node_modules/
+website/.next/
+website/out/
+website/.qa/
+
+.DS_Store
+*.pem
+.env*
+
+.git.bak

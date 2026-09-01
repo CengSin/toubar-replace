@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elev: var(--elev);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-line: var(--line);
+  --color-cta: var(--cta);
+  --color-cta-ink: var(--cta-ink);
+  --font-sans: var(--font-geist-sans), var(--font-noto), "PingFang SC",
+    "Noto Sans SC", sans-serif;
+  --radius-box: 14px;
+}
+
+:root,
+html[data-theme="dark"] {
+  --bg: #0e0f11;
+  --elev: #16181c;
+  --ink: #f1f2f4;
+  --muted: #8d9198;
+  --accent: #4ec8e8;
+  --line: rgba(241, 242, 244, 0.1);
+  --cta: #f1f2f4;
+  --cta-ink: #121316;
+  --glass: rgba(14, 15, 17, 0.56);
+  --glass-stroke: rgba(255, 255, 255, 0.14);
+  --scrim: rgba(8, 9, 11, 0.72);
+}
+
+html[data-theme="light"] {
+  --bg: #e6e8ec;
+  --elev: #f3f4f6;
+  --ink: #16181c;
+  --muted: #5c6168;
+  --accent: #1b8fa8;
+  --line: rgba(22, 24, 28, 0.12);
+  --cta: #16181c;
+  --cta-ink: #f3f4f6;
+  --glass: rgba(243, 244, 246, 0.72);
+  --glass-stroke: rgba(255, 255, 255, 0.55);
+  --scrim: rgba(230, 232, 236, 0.86);
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--ink);
+}
+
+/* Web approximation of frosted material, not official Apple Liquid Glass. */
+.glass-nav {
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  border: 1px solid var(--glass-stroke);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 10px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav {
+    background: var(--elev);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+.hero-copy {
+  animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-copy {
+    animation: none;
+  }
+}
+
+.bar-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bar-scroll::-webkit-scrollbar {
+  display: none;
+}

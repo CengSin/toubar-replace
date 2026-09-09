@@ -555,12 +555,19 @@ enum ToubarReplaceSmokeTest {
                         && $0.isRecommended
                         && $0.fiveHour.isHighlighted
                         && $0.fiveHour.valueText == "41%"
-                        && $0.reset.valueText.contains("h")
+                        && $0.reset.valueText == "4d0h"
                 })
                 && boardState.groups.contains(where: {
-                    $0.provider == .codex && $0.weekly.valueText == "80%"
+                    $0.provider == .codex
+                        && $0.weekly.valueText == "80%"
+                        && $0.reset.valueText == "3d0h"
+                })
+                && boardState.groups.contains(where: {
+                    $0.provider == .grokBots
+                        && $0.reset.ratio == nil
+                        && $0.reset.valueText == "—"
                 }),
-            "quota board must show every pool as three bars and mark the recommended 5h",
+            "quota board must show every pool as three bars, mark the recommended 5h, and time reset from the weekly window",
             failures: &failures
         )
         let hiddenCodex = QuotaBoardState.from(

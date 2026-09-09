@@ -349,7 +349,6 @@ struct QuotaBoardState: Equatable {
     ) -> QuotaProviderGroupState {
         let fiveHour = pool.windows.first { $0.kind == .fiveHour }
         let weekly = pool.windows.first { $0.kind == .weekly }
-        let nearest = pool.windows.min { $0.resetAt < $1.resetAt }
         let isRecommended = decision?.provider == pool.provider
         let highlighted = isRecommended ? decision?.highlightedKind : nil
 
@@ -369,12 +368,12 @@ struct QuotaBoardState: Equatable {
             },
             highlighted: highlighted == .weekly
         )
-        let resetText = nearest.map {
+        let resetText = weekly.map {
             QuotaDisplayFormatting.countdown($0.resetAt.timeIntervalSince(now))
         }
         let resetMetric = metric(
             caption: "重置",
-            ratio: nearest.map { $0.cycleRemainingRatio(now: now) },
+            ratio: weekly.map { $0.cycleRemainingRatio(now: now) },
             valueText: resetText,
             highlighted: false
         )

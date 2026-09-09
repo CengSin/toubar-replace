@@ -1,87 +1,63 @@
-"use client";
-
-import { motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
-import { useState } from "react";
-import { cn } from "@/lib/cn";
+import { FadeIn } from "@/components/fade-in";
 
 const ITEMS = [
   {
     id: "quota",
     title: "用量",
     body: "读本机 OpenUsage，每个订阅三根竖柱：短时、周剩余、下次重置。多了左右滑，设置里勾选要展示的项。",
-    image: "/images/macro.jpg",
-    position: "object-center",
+    image: "/images/workspace-quota.png",
+    width: 1104,
+    height: 80,
+    alt: "用量区真实截图：Grok Build、Cursor 与推荐的 Grok Bots 三柱",
   },
   {
     id: "recommend",
     title: "推荐",
-    body: "浪费风险最高的订阅会描边。点那一列打开对应应用，不用先去找图标。",
-    image: "/images/desk.jpg",
-    position: "object-center",
+    body: "浪费风险最高的订阅会描边，对应额度柱为琥珀色。点那一列打开对应应用，不用先去找图标。",
+    image: "/images/workspace-recommend.png",
+    width: 256,
+    height: 80,
+    alt: "推荐订阅真实截图：Grok Bots 描边，5 小时额度柱为琥珀色",
   },
   {
     id: "apps",
     title: "应用",
-    body: "把最多五个常用 App 钉在栏上。点图标只负责打开，管理入口在设置里。",
-    image: "/images/hero.jpg",
-    position: "object-[center_20%]",
+    body: "把最多五个常用 App 钉在栏上。点图标只负责打开，右侧齿轮进入设置管理。",
+    image: "/images/workspace-apps.png",
+    width: 1250,
+    height: 80,
+    alt: "自定义 App 区真实截图：固定应用图标与设置齿轮",
   },
 ] as const;
 
 export function Features() {
-  const [active, setActive] = useState(1);
-  const reduce = useReducedMotion();
-
   return (
     <section className="bg-bg px-6 py-24 md:px-12 md:py-32">
-      <div className="mx-auto grid max-w-[1400px] items-stretch gap-3 md:grid-cols-12 md:gap-4">
-        {ITEMS.map((item, i) => {
-          const open = active === i;
-          return (
-            <motion.button
-              key={item.id}
-              type="button"
-              onMouseEnter={() => setActive(i)}
-              onFocus={() => setActive(i)}
-              onClick={() => setActive(i)}
-              aria-pressed={open}
-              className={cn(
-                "group relative overflow-hidden rounded-[18px] text-left ring-1 ring-line",
-                "min-h-[280px] md:min-h-[420px]",
-                open ? "md:col-span-6" : "md:col-span-3",
-              )}
-              layout
-              transition={
-                reduce
-                  ? { duration: 0 }
-                  : { type: "spring", stiffness: 260, damping: 32 }
-              }
-            >
-              <Image
-                src={item.image}
-                alt=""
-                fill
-                sizes="(max-width: 768px) 100vw, 50vw"
-                className={cn("object-cover", item.position)}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[rgba(8,9,11,0.92)] via-[rgba(8,9,11,0.25)] to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 p-6 md:p-7">
-                <h3 className="text-2xl font-medium tracking-tight text-white md:text-3xl">
+      <div className="mx-auto grid max-w-[1400px] gap-4 md:grid-cols-3">
+        {ITEMS.map((item, i) => (
+          <FadeIn key={item.id} delay={i * 0.06}>
+            <article className="flex h-full flex-col overflow-hidden rounded-[18px] bg-elev ring-1 ring-line">
+              <div className="flex min-h-[148px] items-center overflow-hidden bg-[#111214] px-4 py-8 md:min-h-[180px] md:px-5">
+                <Image
+                  src={item.image}
+                  alt={item.alt}
+                  width={item.width}
+                  height={item.height}
+                  className="h-14 w-auto max-w-none md:h-16"
+                />
+              </div>
+              <div className="flex flex-1 flex-col p-6 md:p-7">
+                <h3 className="text-2xl font-medium tracking-tight text-ink">
                   {item.title}
                 </h3>
-                <p
-                  className={cn(
-                    "mt-2 max-w-[36ch] text-[14px] leading-relaxed text-white/75 transition-opacity duration-300",
-                    open ? "opacity-100" : "opacity-0 md:opacity-0",
-                  )}
-                >
+                <p className="mt-2 max-w-[36ch] text-[14px] leading-relaxed text-muted">
                   {item.body}
                 </p>
               </div>
-            </motion.button>
-          );
-        })}
+            </article>
+          </FadeIn>
+        ))}
       </div>
     </section>
   );

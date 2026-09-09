@@ -13,7 +13,9 @@ export function Download() {
         <h2 className="text-4xl font-medium tracking-[-0.03em] text-ink md:text-6xl">
           下载 {SITE.name}
         </h2>
-        <p className="mt-4 text-[15px] text-muted">{SITE.mac}</p>
+        <p className="mt-4 text-[15px] text-muted">
+          {SITE.mac}。用量区需要本机 OpenUsage。
+        </p>
         <div className="mt-8 flex flex-col items-center gap-3">
           <DownloadButton href={SITE.dmg} download>
             下载应用

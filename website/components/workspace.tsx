@@ -1,5 +1,5 @@
 import { FadeIn } from "@/components/fade-in";
-import { TouchBarFrame } from "@/components/touch-bar";
+import { WorkspaceShot } from "@/components/workspace-shot";
 
 export function Workspace() {
   return (
@@ -12,11 +12,12 @@ export function Workspace() {
           一条栏，两个区。
         </h2>
         <p className="mt-5 max-w-[42ch] text-[16px] leading-relaxed text-muted">
-          左侧看订阅用量，右侧打开常用 App。订阅多了可以左右滑，点一下就启动。
+          左侧看订阅用量，右侧打开常用 App。订阅多了可以左右滑，点一下就启动。下面是正在运行的
+          Workspace 截图。
         </p>
       </FadeIn>
       <FadeIn delay={0.1} className="mx-auto mt-12 max-w-5xl md:mt-16">
-        <TouchBarFrame />
+        <WorkspaceShot />
       </FadeIn>
     </section>
   );

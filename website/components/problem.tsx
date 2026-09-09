@@ -1,5 +1,5 @@
 import { FadeIn } from "@/components/fade-in";
-import { TouchBarFrame } from "@/components/touch-bar";
+import { WorkspaceShot } from "@/components/workspace-shot";
 
 export function Problem() {
   return (
@@ -13,8 +13,8 @@ export function Problem() {
           里找图标。
         </p>
       </FadeIn>
-      <FadeIn delay={0.08} className="mx-auto mt-12 max-w-4xl md:mt-16">
-        <TouchBarFrame />
+      <FadeIn delay={0.08} className="mx-auto mt-12 max-w-5xl md:mt-16">
+        <WorkspaceShot />
       </FadeIn>
     </section>
   );

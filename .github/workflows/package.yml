@@ -42,6 +42,9 @@ jobs:
     name: Build and package
     runs-on: macos-26
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ToubarReplace
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -60,9 +63,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .build
+            ToubarReplace/.build
             ~/Library/Caches/org.swift.swiftpm
-          key: package-${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: package-${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('ToubarReplace/Package.swift', 'ToubarReplace/Package.resolved') }}
           restore-keys: |
             package-${{ runner.os }}-${{ runner.arch }}-spm-
 
@@ -127,8 +130,8 @@ jobs:
         with:
           name: ToubarReplace-${{ steps.version.outputs.version }}
           path: |
-            dist/ToubarReplace-${{ steps.version.outputs.version }}.dmg
-            dist/ToubarReplace-${{ steps.version.outputs.version }}.pkg
+            ToubarReplace/dist/ToubarReplace-${{ steps.version.outputs.version }}.dmg
+            ToubarReplace/dist/ToubarReplace-${{ steps.version.outputs.version }}.pkg
           if-no-files-found: error
           retention-days: 30
 

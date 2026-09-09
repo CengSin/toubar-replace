@@ -1,0 +1,79 @@
+# Pull request / main: app smoke test + website build.
+# Physical Touch Bar / private API behavior is not covered here.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: App smoke test
+    runs-on: macos-26
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ToubarReplace
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          swift --version
+          uname -m
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ToubarReplace/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ci-${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('ToubarReplace/Package.swift', 'ToubarReplace/Package.resolved') }}
+          restore-keys: |
+            ci-${{ runner.os }}-${{ runner.arch }}-spm-
+
+      - name: Smoke test
+        run: Scripts/run-regression.sh
+
+  website:
+    name: Website lint and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_SITE_URL: https://toubarreplace.z-agent.ccwu.cc
+        run: npm run build

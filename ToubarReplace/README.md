@@ -50,7 +50,7 @@ TOUBAR_VERSION=2.0.0 Packaging/build-app.sh
 
 产物在 `dist/` 目录。可用 `lipo -info dist/ToubarReplace.app/Contents/MacOS/ToubarReplace` 查看架构切片。
 
-构建、回归测试与实现边界见 [`docs/README-developer.md`](docs/README-developer.md)。
+构建、回归测试与实现边界见 [`docs/README-developer.md`](docs/README-developer.md)。仓库根目录的 GitHub Actions 会在 push / PR 时跑 smoke test；打 `v*` tag 或手动运行 **Package** 工作流可打出 DMG / PKG。
 
 ---
 

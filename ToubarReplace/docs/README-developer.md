@@ -16,6 +16,13 @@ Scripts/run-regression.sh
 TOUBAR_VERSION=1.2.3 Packaging/build-app.sh
 ```
 
+GitHub Actions 工作流在仓库根目录 `.github/workflows/`（必须放在根目录，GitHub 不会读取 `ToubarReplace/.github`）：
+
+- `ci.yml`：push / PR 跑应用 smoke test（`macos-26`）和官网 lint + build
+- `package.yml`：打 tag `v*` 或在 Actions 里手动运行，产出 DMG / PKG；可选挂到 GitHub Release
+
+手动打包：仓库 **Actions → Package → Run workflow**。
+
 smoke test 不创建窗口、不连接私有 Touch Bar 显示流，主要验证尺寸、布局、placement、PresentationMode 策略、额度映射/滑动/隐藏、启动参数、硬件能力策略和异步打开错误传播。私有 system modal 行为仍需带 Touch Bar 的 Intel 真机验证。读本机 OpenUsage HTTP 需要 `NSAllowsLocalNetworking`。
 
 ## 桌面窗口与切换按钮

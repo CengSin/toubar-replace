@@ -37,232 +37,20 @@ struct TouchBarWindowMetrics {
     }
 }
 
-enum TouchBarIdleOpacity {
-    static let active: CGFloat = 1
-    static let idle: CGFloat = 0.3
-    static let minimumDelaySeconds = 1
-    static let defaultDelaySeconds = 5
-    static let maximumDelaySeconds = 300
-    static let delay: Duration = .seconds(defaultDelaySeconds)
-    /// How often to re-check whether the mirror covers other app content.
-    static let occlusionPollInterval: Duration = .milliseconds(750)
-    /// Minimum overlapping area (points²) to count as obscuring content.
-    static let minimumOverlapArea: CGFloat = 80
+/// Desktop-window hover fade. Physical Touch Bar chrome is never changed.
+enum TouchBarHoverOpacity {
+    static let normal: CGFloat = 1
+    static let hovered: CGFloat = 0.3
 
-    static func clampedDelaySeconds(_ seconds: Int) -> Int {
-        min(max(seconds, minimumDelaySeconds), maximumDelaySeconds)
+    static func targetAlpha(isMouseInside: Bool) -> CGFloat {
+        isMouseInside ? hovered : normal
     }
 
-    static func shouldPollOcclusion(isIdle: Bool) -> Bool {
-        isIdle
-    }
-
-    static func targetAlpha(
-        isIdle: Bool,
-        isObscuringOtherAppContent: Bool
-    ) -> CGFloat {
-        isIdle && isObscuringOtherAppContent ? idle : active
-    }
-
-    /// Idle fade is for the live capture mirror only. Software Workspace and
-    /// the Workspace scene have no (or stalled) display-stream frames, so a
-    /// timeout would dim the launcher for no reason.
-    static func allowsIdle(
-        captureRunning: Bool,
-        scene: BarScene
+    static func isMouseInside(
+        windowFrame: CGRect,
+        mouseLocation: CGPoint
     ) -> Bool {
-        captureRunning && scene == .mirror
-    }
-}
-
-/// One on-screen window entry for occlusion tests (Cocoa coordinates).
-struct MirrorOcclusionWindowInfo: Equatable {
-    var windowNumber: Int
-    var ownerPID: pid_t
-    var layer: Int
-    var bounds: CGRect
-    var ownerName: String?
-    var bundleIdentifier: String?
-}
-
-/// Gates delayed idle transparency: only while the mirror floats over other apps' content.
-/// Over empty desktop / wallpaper only → stay fully opaque.
-enum MirrorWindowOcclusion {
-    /// System UI that should not trigger idle fade when under the mirror.
-    static let excludedBundleIdentifiers: Set<String> = [
-        "com.apple.dock",
-        "com.apple.controlcenter",
-        "com.apple.notificationcenterui",
-        "com.apple.systemuiserver",
-        "com.apple.WindowManager",
-        "com.apple.loginwindow",
-        "com.apple.Spotlight",
-        "com.apple.TextInputUI.xpc.CursorUIViewService",
-    ]
-
-    static let excludedOwnerNames: Set<String> = [
-        "Dock",
-        "Control Center",
-        "Notification Centre",
-        "Notification Center",
-        "SystemUIServer",
-        "Window Server",
-        "WindowManager",
-        "Wallpaper",
-    ]
-
-    /// Convert `CGWindowList` bounds (Quartz, top-left origin) to Cocoa (bottom-left).
-    static func cocoaRect(
-        fromCGWindowBounds cgRect: CGRect,
-        mainDisplayHeight: CGFloat
-    ) -> CGRect {
-        CGRect(
-            x: cgRect.origin.x,
-            y: mainDisplayHeight - cgRect.origin.y - cgRect.height,
-            width: cgRect.width,
-            height: cgRect.height
-        )
-    }
-
-    static func overlapArea(_ a: CGRect, _ b: CGRect) -> CGFloat {
-        let intersection = a.intersection(b)
-        guard !intersection.isNull, !intersection.isInfinite else { return 0 }
-        return max(0, intersection.width) * max(0, intersection.height)
-    }
-
-    /// Pure helper: whether a candidate window under the mirror counts as "app content".
-    static func isObscurableContentWindow(
-        ownerPID: pid_t,
-        selfPID: pid_t,
-        layer: Int,
-        bundleIdentifier: String?,
-        ownerName: String?
-    ) -> Bool {
-        guard ownerPID != selfPID else { return false }
-        // Desktop wallpaper / icons sit on negative layers; skip them.
-        guard layer >= 0 else { return false }
-        // Menubar / overlays sit well above normal app content (layer 0).
-        // Keep a generous band so Chromium / Electron helpers still count.
-        guard layer <= 25 else { return false }
-
-        if let bundleIdentifier, excludedBundleIdentifiers.contains(bundleIdentifier) {
-            return false
-        }
-        if let ownerName, excludedOwnerNames.contains(ownerName) {
-            return false
-        }
-        return true
-    }
-
-    /// `windowsFrontToBack` must be ordered front → back (CGWindowList default).
-    static func isObscuringOtherAppContent(
-        mirrorWindowNumber: Int,
-        mirrorBounds: CGRect,
-        selfPID: pid_t,
-        windowsFrontToBack: [MirrorOcclusionWindowInfo],
-        minimumOverlapArea: CGFloat = TouchBarIdleOpacity.minimumOverlapArea
-    ) -> Bool {
-        guard mirrorBounds.width > 1, mirrorBounds.height > 1 else { return false }
-
-        let mirrorIndex = windowsFrontToBack.firstIndex {
-            $0.windowNumber == mirrorWindowNumber
-        }
-
-        // Windows strictly behind the mirror in z-order; if the mirror is missing
-        // from the list (transient), still scan every other candidate.
-        let behind: ArraySlice<MirrorOcclusionWindowInfo>
-        if let mirrorIndex {
-            behind = windowsFrontToBack[(mirrorIndex + 1)...]
-        } else {
-            behind = windowsFrontToBack[...]
-        }
-
-        for window in behind {
-            if window.windowNumber == mirrorWindowNumber { continue }
-            guard isObscurableContentWindow(
-                ownerPID: window.ownerPID,
-                selfPID: selfPID,
-                layer: window.layer,
-                bundleIdentifier: window.bundleIdentifier,
-                ownerName: window.ownerName
-            ) else {
-                continue
-            }
-            if overlapArea(mirrorBounds, window.bounds) >= minimumOverlapArea {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// Live check for the mirror `NSWindow`.
-    @MainActor
-    static func isObscuringOtherAppContent(mirrorWindow: NSWindow) -> Bool {
-        let selfPID = ProcessInfo.processInfo.processIdentifier
-        let mirrorNumber = mirrorWindow.windowNumber
-        let mirrorBounds = mirrorWindow.frame
-        let windows = snapshotOnScreenWindows()
-        return isObscuringOtherAppContent(
-            mirrorWindowNumber: mirrorNumber,
-            mirrorBounds: mirrorBounds,
-            selfPID: selfPID,
-            windowsFrontToBack: windows
-        )
-    }
-
-    private static func snapshotOnScreenWindows() -> [MirrorOcclusionWindowInfo] {
-        let options = CGWindowListOption(
-            arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements
-        )
-        guard
-            let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
-                as? [[String: Any]]
-        else {
-            return []
-        }
-
-        let mainDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
-        var bundleByPID: [pid_t: String] = [:]
-
-        func bundleID(for pid: pid_t) -> String? {
-            if let cached = bundleByPID[pid] { return cached }
-            let value = NSRunningApplication(processIdentifier: pid)?
-                .bundleIdentifier
-            if let value {
-                bundleByPID[pid] = value
-            }
-            return value
-        }
-
-        var result: [MirrorOcclusionWindowInfo] = []
-        result.reserveCapacity(infoList.count)
-        for info in infoList {
-            guard
-                let number = info[kCGWindowNumber as String] as? Int,
-                let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-                let cgBounds = CGRect(dictionaryRepresentation: boundsDict)
-            else {
-                continue
-            }
-            let layer = info[kCGWindowLayer as String] as? Int ?? 0
-            let ownerName = info[kCGWindowOwnerName as String] as? String
-            let cocoaBounds = cocoaRect(
-                fromCGWindowBounds: cgBounds,
-                mainDisplayHeight: mainDisplayHeight
-            )
-            result.append(
-                MirrorOcclusionWindowInfo(
-                    windowNumber: number,
-                    ownerPID: ownerPID,
-                    layer: layer,
-                    bounds: cocoaBounds,
-                    ownerName: ownerName,
-                    bundleIdentifier: bundleID(for: ownerPID)
-                )
-            )
-        }
-        return result
+        windowFrame.contains(mouseLocation)
     }
 }
 
@@ -286,232 +74,76 @@ enum WorkspaceAsyncSessionPolicy {
 }
 
 @MainActor
-final class TouchBarIdleOpacityController {
-    private weak var window: NSWindow?
-    private let clock = ContinuousClock()
-    private var idleMonitorTask: Task<Void, Never>?
-    private var occlusionPollTask: Task<Void, Never>?
-    private var occlusionObservers: [NSObjectProtocol] = []
-    private var lastFrameActivityAt: ContinuousClock.Instant?
-    private var isIdle = false
-    private var allowsIdle = true
-    private var idleDelay: Duration
+final class TouchBarHoverOpacityController {
+    private static let mouseEventMask: NSEvent.EventTypeMask = [
+        .mouseMoved,
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged,
+        .leftMouseDown,
+        .leftMouseUp,
+    ]
 
-    init(
-        window: NSWindow,
-        idleDelaySeconds: Int = TouchBarPreferences.idleOpacityDelaySeconds
-    ) {
+    private weak var window: NSWindow?
+    private var localMonitor: Any?
+    private var globalMonitor: Any?
+
+    init(window: NSWindow) {
         self.window = window
-        self.idleDelay = .seconds(
-            TouchBarIdleOpacity.clampedDelaySeconds(idleDelaySeconds)
-        )
     }
 
     func start() {
-        installOcclusionObservers()
-        registerFrameActivity()
+        installMonitorsIfNeeded()
+        refresh()
     }
 
     func stop() {
-        removeOcclusionObservers()
-        idleMonitorTask?.cancel()
-        idleMonitorTask = nil
-        occlusionPollTask?.cancel()
-        occlusionPollTask = nil
-        lastFrameActivityAt = nil
-        isIdle = false
-        window?.alphaValue = TouchBarIdleOpacity.active
+        removeMonitors()
+        apply(TouchBarHoverOpacity.normal)
     }
 
-    func setAllowsIdle(_ allowsIdle: Bool) {
-        self.allowsIdle = allowsIdle
-        if allowsIdle {
-            registerFrameActivity()
+    func refresh() {
+        guard let window, window.isVisible else {
+            apply(TouchBarHoverOpacity.normal)
             return
         }
-        lastFrameActivityAt = clock.now
-        isIdle = false
-        idleMonitorTask?.cancel()
-        idleMonitorTask = nil
-        occlusionPollTask?.cancel()
-        occlusionPollTask = nil
-        if window?.alphaValue != TouchBarIdleOpacity.active {
-            window?.alphaValue = TouchBarIdleOpacity.active
-        }
-    }
-
-    func registerFrameActivity() {
-        lastFrameActivityAt = clock.now
-        isIdle = false
-        occlusionPollTask?.cancel()
-        occlusionPollTask = nil
-        if window?.alphaValue != TouchBarIdleOpacity.active {
-            window?.alphaValue = TouchBarIdleOpacity.active
-        }
-        guard allowsIdle else { return }
-        startIdleMonitorIfNeeded()
-    }
-
-    func setIdleDelaySeconds(_ seconds: Int) {
-        idleDelay = .seconds(
-            TouchBarIdleOpacity.clampedDelaySeconds(seconds)
+        let inside = TouchBarHoverOpacity.isMouseInside(
+            windowFrame: window.frame,
+            mouseLocation: NSEvent.mouseLocation
         )
-        guard lastFrameActivityAt != nil else { return }
-
-        // Re-evaluate from the latest real frame so this setting takes effect
-        // immediately without counting the settings interaction as activity.
-        idleMonitorTask?.cancel()
-        idleMonitorTask = nil
-        occlusionPollTask?.cancel()
-        occlusionPollTask = nil
-        isIdle = false
-        window?.alphaValue = TouchBarIdleOpacity.active
-        startIdleMonitorIfNeeded()
+        apply(TouchBarHoverOpacity.targetAlpha(isMouseInside: inside))
     }
 
-    /// One monitor follows the latest activity deadline. Frames only update the
-    /// timestamp; they do not allocate and cancel a new sleeping task.
-    private func startIdleMonitorIfNeeded() {
-        guard allowsIdle else { return }
-        guard idleMonitorTask == nil else { return }
-        idleMonitorTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                guard let observedActivity = self.lastFrameActivityAt else {
-                    self.idleMonitorTask = nil
-                    return
-                }
-                do {
-                    try await self.clock.sleep(
-                        until: observedActivity.advanced(
-                            by: self.idleDelay
-                        )
-                    )
-                } catch {
-                    return
-                }
-                guard self.lastFrameActivityAt == observedActivity else {
-                    continue
-                }
-                self.idleMonitorTask = nil
-                guard self.allowsIdle else { return }
-                self.enterIdleState()
-                return
-            }
+    private func installMonitorsIfNeeded() {
+        guard localMonitor == nil, globalMonitor == nil else { return }
+        localMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: Self.mouseEventMask
+        ) { [weak self] event in
+            self?.refresh()
+            return event
+        }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: Self.mouseEventMask
+        ) { [weak self] _ in
+            self?.refresh()
         }
     }
 
-    private func enterIdleState() {
-        guard allowsIdle else {
-            isIdle = false
-            window?.alphaValue = TouchBarIdleOpacity.active
-            return
+    private func removeMonitors() {
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
         }
-        isIdle = true
-        refreshOcclusionWhileIdle()
-        startIdleOcclusionPolling()
-    }
-
-    private func installOcclusionObservers() {
-        removeOcclusionObservers()
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        let notificationCenter = NotificationCenter.default
-        occlusionObservers = [
-            workspaceCenter.addObserver(
-                forName: NSWorkspace.didActivateApplicationNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshOcclusionWhileIdle()
-                }
-            },
-            workspaceCenter.addObserver(
-                forName: NSWorkspace.activeSpaceDidChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshOcclusionWhileIdle()
-                }
-            },
-            notificationCenter.addObserver(
-                forName: NSApplication.didChangeScreenParametersNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshOcclusionWhileIdle()
-                }
-            },
-        ]
-        if let window {
-            occlusionObservers.append(
-                notificationCenter.addObserver(
-                    forName: NSWindow.didMoveNotification,
-                    object: window,
-                    queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.refreshOcclusionWhileIdle()
-                    }
-                }
-            )
-            occlusionObservers.append(
-                notificationCenter.addObserver(
-                    forName: NSWindow.didResizeNotification,
-                    object: window,
-                    queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.refreshOcclusionWhileIdle()
-                    }
-                }
-            )
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
         }
     }
 
-    private func startIdleOcclusionPolling() {
-        guard
-            TouchBarIdleOpacity.shouldPollOcclusion(isIdle: isIdle),
-            occlusionPollTask == nil
-        else {
-            return
-        }
-        occlusionPollTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: TouchBarIdleOpacity.occlusionPollInterval)
-                guard !Task.isCancelled else { return }
-                guard let self, self.isIdle else { return }
-                self.refreshOcclusionWhileIdle()
-            }
-        }
-    }
-
-    private func removeOcclusionObservers() {
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        let notificationCenter = NotificationCenter.default
-        for observer in occlusionObservers {
-            workspaceCenter.removeObserver(observer)
-            notificationCenter.removeObserver(observer)
-        }
-        occlusionObservers.removeAll()
-        occlusionPollTask?.cancel()
-        occlusionPollTask = nil
-    }
-
-    private func refreshOcclusionWhileIdle() {
-        guard isIdle else { return }
+    private func apply(_ alpha: CGFloat) {
         guard let window else { return }
-        let isObscuring = MirrorWindowOcclusion.isObscuringOtherAppContent(
-            mirrorWindow: window
-        )
-        let targetAlpha = TouchBarIdleOpacity.targetAlpha(
-            isIdle: isIdle,
-            isObscuringOtherAppContent: isObscuring
-        )
-        if window.alphaValue != targetAlpha {
-            window.alphaValue = targetAlpha
+        if window.alphaValue != alpha {
+            window.alphaValue = alpha
         }
     }
 }
@@ -651,7 +283,7 @@ final class TouchBarSurfaceView: NSView {
 final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let rootView: TouchBarRootView
     private let capture: TouchBarCapture
-    private let idleOpacityController: TouchBarIdleOpacityController
+    private let hoverOpacityController: TouchBarHoverOpacityController
     private let quotaStore = QuotaSnapshotStore()
     private let workspaceTouchBarController = WorkspaceTouchBarController()
     private let switcherTouchBarController = SwitcherTouchBarController()
@@ -703,13 +335,14 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.backgroundColor = .black
-        panel.isOpaque = true
+        panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         // Pure display: mouse events pass through to apps behind the mirror.
         // Reposition via settings (display position / custom coordinates), not drag.
         panel.isMovableByWindowBackground = false
         panel.ignoresMouseEvents = true
+        panel.acceptsMouseMovedEvents = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.minSize = TouchBarWindowMetrics.rootSize(
             forMirrorSize: TouchBarWindowMetrics.minimumSize
@@ -728,15 +361,12 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
         panel.setContentSize(initialRootSize)
 
-        let idleOpacityController = TouchBarIdleOpacityController(window: panel)
-        self.idleOpacityController = idleOpacityController
+        hoverOpacityController = TouchBarHoverOpacityController(window: panel)
         let frameDelivery = TouchBarFrameDeliveryCoalescer {
-            [weak rootView, weak idleOpacityController] image in
+            [weak rootView] image in
             rootView?.surfaceView.display(image: image)
-            idleOpacityController?.registerFrameActivity()
         }
         capture = TouchBarCapture(
-            framesPerSecond: TouchBarPreferences.displayFramesPerSecond,
             onFrame: { image in
                 frameDelivery.submit(image)
             },
@@ -775,7 +405,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         window?.orderFrontRegardless()
         configureFloatingWorkspaceSwitcher()
         showFloatingWorkspaceSwitcherIfNeeded()
-        idleOpacityController.start()
+        hoverOpacityController.start()
 
         let enterWorkspace =
             SoftwareWorkspaceLaunchPolicy.shouldEnterWorkspaceAtLaunch(
@@ -800,7 +430,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             presentPhysicalSwitcherIfNeeded()
             updateMirrorClickThrough()
         }
-        syncIdleOpacityPolicy()
+        hoverOpacityController.refresh()
         configureFloatingWorkspaceSwitcher()
         showFloatingWorkspaceSwitcherIfNeeded()
     }
@@ -811,7 +441,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         workspaceTouchBarController.dismiss()
         switcherTouchBarController.dismiss()
         workspaceSwitcherWindowController?.window?.orderOut(nil)
-        idleOpacityController.stop()
+        hoverOpacityController.stop()
         capture.stop()
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(center.removeObserver)
@@ -874,29 +504,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     func ensurePhysicalSwitcherPresented() {
         presentPhysicalSwitcherIfNeeded()
         suppressPhysicalSwitcherCloseBox()
-    }
-
-    var displayFramesPerSecond: Int {
-        TouchBarPreferences.displayFramesPerSecond
-    }
-
-    func setDisplayFramesPerSecond(_ framesPerSecond: Int) {
-        let clamped = min(
-            max(framesPerSecond, TouchBarCapture.minimumFramesPerSecond),
-            TouchBarCapture.maximumFramesPerSecond
-        )
-        TouchBarPreferences.displayFramesPerSecond = clamped
-        capture.updateFramesPerSecond(clamped)
-    }
-
-    var idleOpacityDelaySeconds: Int {
-        TouchBarPreferences.idleOpacityDelaySeconds
-    }
-
-    func setIdleOpacityDelaySeconds(_ seconds: Int) {
-        let clamped = TouchBarIdleOpacity.clampedDelaySeconds(seconds)
-        TouchBarPreferences.idleOpacityDelaySeconds = clamped
-        idleOpacityController.setIdleDelaySeconds(clamped)
     }
 
     var mirrorPixelSize: CGSize {
@@ -975,10 +582,20 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) {
         persistCurrentPixelSize()
+        hoverOpacityController.refresh()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        hoverOpacityController.refresh()
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
         persistCurrentPixelSize()
+        hoverOpacityController.refresh()
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        hoverOpacityController.refresh()
     }
 
     func positionWindow() {
@@ -1115,19 +732,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             scene: rootView.scene,
             showsWorkspaceFallback: rootView.showsWorkspaceFallback
         )
-    }
-
-    private func syncIdleOpacityPolicy() {
-        let captureRunning = isRunning
-            && SoftwareWorkspaceLaunchPolicy.shouldStartHardwareCapture(
-                usesSoftwareWorkspace: usesSoftwareWorkspace
-            )
-        idleOpacityController.setAllowsIdle(
-            TouchBarIdleOpacity.allowsIdle(
-                captureRunning: captureRunning,
-                scene: rootView.scene
-            )
-        )
+        hoverOpacityController.refresh()
     }
 
     private func configureFloatingWorkspaceSwitcher() {
@@ -1190,13 +795,11 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
         rootView.setScene(.workspace)
         workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
-        idleOpacityController.registerFrameActivity()
         switcherTouchBarController.dismiss()
         rootView.setWorkspaceFallbackVisible(true)
         updateMirrorClickThrough()
 
         refreshQuotaDisplay()
-        syncIdleOpacityPolicy()
         configureFloatingWorkspaceSwitcher()
         showFloatingWorkspaceSwitcherIfNeeded()
         if !isLaunch {
@@ -1224,7 +827,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
         rootView.setScene(.workspace)
         workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
-        idleOpacityController.registerFrameActivity()
         switcherTouchBarController.dismiss()
 
         do {
@@ -1239,7 +841,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             configureFloatingWorkspaceSwitcher()
             showFloatingWorkspaceSwitcherIfNeeded()
             refreshQuotaDisplay()
-            syncIdleOpacityPolicy()
             if !isLaunch {
                 rootView.scheduleSceneTransitionCoverFade()
             }
@@ -1247,7 +848,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
 
         refreshQuotaDisplay()
-        syncIdleOpacityPolicy()
         configureFloatingWorkspaceSwitcher()
         showFloatingWorkspaceSwitcherIfNeeded()
         if !isLaunch {
@@ -1272,7 +872,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         configureFloatingWorkspaceSwitcher()
         showFloatingWorkspaceSwitcherIfNeeded()
         presentPhysicalSwitcherIfNeeded()
-        syncIdleOpacityPolicy()
+        hoverOpacityController.refresh()
         rootView.scheduleSceneTransitionCoverFade()
     }
 
@@ -1288,10 +888,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.setWorkspaceFallbackVisible(false)
         rootView.setScene(.mirror)
         workspaceSwitcherWindowController?.switcherView.setScene(.mirror)
-        idleOpacityController.registerFrameActivity()
         presentPhysicalSwitcherIfNeeded()
         updateMirrorClickThrough()
-        syncIdleOpacityPolicy()
         rootView.scheduleSceneTransitionCoverFade()
     }
 

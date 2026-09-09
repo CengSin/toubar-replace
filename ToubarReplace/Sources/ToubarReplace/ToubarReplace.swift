@@ -135,10 +135,6 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
                 : .zero)
         let pixelSize = windowController?.mirrorPixelSize
             ?? TouchBarPreferences.mirrorPixelSize
-        let framesPerSecond = windowController?.displayFramesPerSecond
-            ?? TouchBarPreferences.displayFramesPerSecond
-        let idleOpacityDelaySeconds = windowController?.idleOpacityDelaySeconds
-            ?? TouchBarPreferences.idleOpacityDelaySeconds
         let switcherFloats = windowController?.workspaceSwitcherFloats
             ?? WorkspacePreferences.floatingSwitcher
         let startupScene = windowController?.workspaceStartupScene
@@ -147,8 +143,6 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             currentPosition: position,
             currentCustomTopLeft: customTopLeft,
             currentPixelSize: pixelSize,
-            currentFramesPerSecond: framesPerSecond,
-            currentIdleOpacityDelaySeconds: idleOpacityDelaySeconds,
             currentWorkspaceSwitcherFloats: switcherFloats,
             currentWorkspaceStartupScene: startupScene,
             onPositionChanged: { [weak self] position in
@@ -168,14 +162,6 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             },
             onPixelSizeChanged: { [weak self] pixelSize in
                 self?.windowController?.setMirrorPixelSize(pixelSize)
-            },
-            onFramesPerSecondChanged: { [weak self] framesPerSecond in
-                self?.windowController?.setDisplayFramesPerSecond(
-                    framesPerSecond
-                )
-            },
-            onIdleOpacityDelayChanged: { [weak self] seconds in
-                self?.windowController?.setIdleOpacityDelaySeconds(seconds)
             },
             onPickApplication: { [weak self] completion in
                 self?.chooseCustomApplication(completion: completion)

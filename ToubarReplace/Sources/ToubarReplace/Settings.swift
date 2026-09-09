@@ -37,10 +37,6 @@ enum TouchBarPreferences {
     private static let positionKey = "ToubarReplace.displayPosition"
     private static let widthPixelsKey = "ToubarReplace.widthPixels"
     private static let heightPixelsKey = "ToubarReplace.heightPixels"
-    private static let displayFramesPerSecondKey =
-        "ToubarReplace.displayFramesPerSecond"
-    private static let idleOpacityDelaySecondsKey =
-        "ToubarReplace.idleOpacityDelaySeconds"
     private static let customTopLeftXKey = "ToubarReplace.customTopLeftX"
     private static let customTopLeftYKey = "ToubarReplace.customTopLeftY"
 
@@ -114,53 +110,6 @@ enum TouchBarPreferences {
             )
         }
     }
-
-    static var displayFramesPerSecond: Int {
-        get {
-            let stored = UserDefaults.standard.integer(
-                forKey: displayFramesPerSecondKey
-            )
-            guard stored > 0 else {
-                return TouchBarCapture.defaultFramesPerSecond
-            }
-            return min(
-                max(stored, TouchBarCapture.minimumFramesPerSecond),
-                TouchBarCapture.maximumFramesPerSecond
-            )
-        }
-        set {
-            UserDefaults.standard.set(
-                min(
-                    max(newValue, TouchBarCapture.minimumFramesPerSecond),
-                    TouchBarCapture.maximumFramesPerSecond
-                ),
-                forKey: displayFramesPerSecondKey
-            )
-        }
-    }
-
-    static var idleOpacityDelaySeconds: Int {
-        get {
-            guard
-                UserDefaults.standard.object(
-                    forKey: idleOpacityDelaySecondsKey
-                ) != nil
-            else {
-                return TouchBarIdleOpacity.defaultDelaySeconds
-            }
-            return TouchBarIdleOpacity.clampedDelaySeconds(
-                UserDefaults.standard.integer(
-                    forKey: idleOpacityDelaySecondsKey
-                )
-            )
-        }
-        set {
-            UserDefaults.standard.set(
-                TouchBarIdleOpacity.clampedDelaySeconds(newValue),
-                forKey: idleOpacityDelaySecondsKey
-            )
-        }
-    }
 }
 
 private final class SettingsDocumentView: NSView {
@@ -178,8 +127,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let startupScenePopup: NSPopUpButton
     private let widthField: NSTextField
     private let heightField: NSTextField
-    private let framesPerSecondField: NSTextField
-    private let idleOpacityDelayField: NSTextField
     private let customAppsStack: NSStackView
     private let quotaProvidersStack: NSStackView
     private var quotaProviderChoices: [QuotaProviderChoice] = []
@@ -188,8 +135,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let onWorkspaceFloatingSwitcherChanged: (Bool) -> Void
     private let onWorkspaceStartupSceneChanged: (WorkspaceStartupScene) -> Void
     private let onPixelSizeChanged: (CGSize) -> Void
-    private let onFramesPerSecondChanged: (Int) -> Void
-    private let onIdleOpacityDelayChanged: (Int) -> Void
     private let onPickApplication: (@escaping (URL?) -> Void) -> Void
     private let onCustomAppsChanged: () -> Void
     private let onQuotaVisibilityChanged: () -> Void
@@ -199,8 +144,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         currentPosition: TouchBarDisplayPosition,
         currentCustomTopLeft: CGPoint,
         currentPixelSize: CGSize,
-        currentFramesPerSecond: Int,
-        currentIdleOpacityDelaySeconds: Int,
         currentWorkspaceSwitcherFloats: Bool,
         currentWorkspaceStartupScene: WorkspaceStartupScene,
         onPositionChanged: @escaping (TouchBarDisplayPosition) -> Void,
@@ -208,8 +151,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         onWorkspaceFloatingSwitcherChanged: @escaping (Bool) -> Void,
         onWorkspaceStartupSceneChanged: @escaping (WorkspaceStartupScene) -> Void,
         onPixelSizeChanged: @escaping (CGSize) -> Void,
-        onFramesPerSecondChanged: @escaping (Int) -> Void,
-        onIdleOpacityDelayChanged: @escaping (Int) -> Void,
         onPickApplication: @escaping (@escaping (URL?) -> Void) -> Void,
         onCustomAppsChanged: @escaping () -> Void,
         onQuotaVisibilityChanged: @escaping () -> Void,
@@ -222,8 +163,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.startupScenePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.widthField = NSTextField()
         self.heightField = NSTextField()
-        self.framesPerSecondField = NSTextField()
-        self.idleOpacityDelayField = NSTextField()
         self.customAppsStack = NSStackView()
         self.quotaProvidersStack = NSStackView()
         self.onPositionChanged = onPositionChanged
@@ -231,8 +170,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.onWorkspaceFloatingSwitcherChanged = onWorkspaceFloatingSwitcherChanged
         self.onWorkspaceStartupSceneChanged = onWorkspaceStartupSceneChanged
         self.onPixelSizeChanged = onPixelSizeChanged
-        self.onFramesPerSecondChanged = onFramesPerSecondChanged
-        self.onIdleOpacityDelayChanged = onIdleOpacityDelayChanged
         self.onPickApplication = onPickApplication
         self.onCustomAppsChanged = onCustomAppsChanged
         self.onQuotaVisibilityChanged = onQuotaVisibilityChanged
@@ -311,34 +248,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         widthField.integerValue = Int(currentPixelSize.width.rounded())
         heightField.integerValue = Int(currentPixelSize.height.rounded())
 
-        let framesPerSecondLabel = NSTextField(labelWithString: "镜像帧率")
-        let fpsLabel = NSTextField(labelWithString: "FPS")
-        let framesPerSecondFormatter = NumberFormatter()
-        framesPerSecondFormatter.allowsFloats = false
-        framesPerSecondFormatter.minimum = NSNumber(
-            value: TouchBarCapture.minimumFramesPerSecond
-        )
-        framesPerSecondFormatter.maximum = NSNumber(
-            value: TouchBarCapture.maximumFramesPerSecond
-        )
-        framesPerSecondField.formatter = framesPerSecondFormatter
-        framesPerSecondField.alignment = .right
-        framesPerSecondField.integerValue = currentFramesPerSecond
-
-        let idleOpacityDelayLabel = NSTextField(labelWithString: "透明延迟")
-        let secondsLabel = NSTextField(labelWithString: "秒（1–300）")
-        let idleOpacityDelayFormatter = NumberFormatter()
-        idleOpacityDelayFormatter.allowsFloats = false
-        idleOpacityDelayFormatter.minimum = NSNumber(
-            value: TouchBarIdleOpacity.minimumDelaySeconds
-        )
-        idleOpacityDelayFormatter.maximum = NSNumber(
-            value: TouchBarIdleOpacity.maximumDelaySeconds
-        )
-        idleOpacityDelayField.formatter = idleOpacityDelayFormatter
-        idleOpacityDelayField.alignment = .right
-        idleOpacityDelayField.integerValue = currentIdleOpacityDelaySeconds
-
         let quotaSectionLabel = NSTextField(labelWithString: "用量订阅")
         quotaSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         quotaProvidersStack.orientation = .vertical
@@ -391,20 +300,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         sizeRow.spacing = 8
         sizeRow.alignment = .centerY
 
-        let framesPerSecondRow = NSStackView(
-            views: [framesPerSecondLabel, framesPerSecondField, fpsLabel]
-        )
-        framesPerSecondRow.orientation = .horizontal
-        framesPerSecondRow.spacing = 8
-        framesPerSecondRow.alignment = .centerY
-
-        let idleOpacityDelayRow = NSStackView(
-            views: [idleOpacityDelayLabel, idleOpacityDelayField, secondsLabel]
-        )
-        idleOpacityDelayRow.orientation = .horizontal
-        idleOpacityDelayRow.spacing = 8
-        idleOpacityDelayRow.alignment = .centerY
-
         let stack = NSStackView(
             views: [
                 titleLabel,
@@ -413,8 +308,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
                 switcherModeRow,
                 startupSceneRow,
                 sizeRow,
-                framesPerSecondRow,
-                idleOpacityDelayRow,
                 quotaSectionLabel,
                 quotaProvidersStack,
                 customAppsSectionLabel,
@@ -437,8 +330,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
             switcherModeLabel.widthAnchor.constraint(equalToConstant: 72),
             startupSceneLabel.widthAnchor.constraint(equalToConstant: 72),
             sizeLabel.widthAnchor.constraint(equalToConstant: 72),
-            framesPerSecondLabel.widthAnchor.constraint(equalToConstant: 72),
-            idleOpacityDelayLabel.widthAnchor.constraint(equalToConstant: 72),
             positionPopup.widthAnchor.constraint(equalToConstant: 180),
             switcherDisplayModePopup.widthAnchor.constraint(equalToConstant: 180),
             startupScenePopup.widthAnchor.constraint(equalToConstant: 180),
@@ -446,8 +337,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
             originYField.widthAnchor.constraint(equalToConstant: 70),
             widthField.widthAnchor.constraint(equalToConstant: 90),
             heightField.widthAnchor.constraint(equalToConstant: 70),
-            framesPerSecondField.widthAnchor.constraint(equalToConstant: 90),
-            idleOpacityDelayField.widthAnchor.constraint(equalToConstant: 90),
             customAppsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             quotaProvidersStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
@@ -510,10 +399,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         widthField.action = #selector(pixelSizeChanged(_:))
         heightField.target = self
         heightField.action = #selector(pixelSizeChanged(_:))
-        framesPerSecondField.target = self
-        framesPerSecondField.action = #selector(framesPerSecondChanged(_:))
-        idleOpacityDelayField.target = self
-        idleOpacityDelayField.action = #selector(idleOpacityDelayChanged(_:))
         updateCustomOriginFieldsEnabled(for: currentPosition)
         rebuildCustomAppsRows()
         reloadQuotaProviderRows(WorkspacePreferences.seenQuotaProviders)
@@ -703,25 +588,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
     func updatePixelSize(_ pixelSize: CGSize) {
         widthField.integerValue = Int(pixelSize.width.rounded())
         heightField.integerValue = Int(pixelSize.height.rounded())
-    }
-
-    @objc
-    private func framesPerSecondChanged(_ sender: NSTextField) {
-        let framesPerSecond = min(
-            max(sender.integerValue, TouchBarCapture.minimumFramesPerSecond),
-            TouchBarCapture.maximumFramesPerSecond
-        )
-        framesPerSecondField.integerValue = framesPerSecond
-        onFramesPerSecondChanged(framesPerSecond)
-    }
-
-    @objc
-    private func idleOpacityDelayChanged(_ sender: NSTextField) {
-        let seconds = TouchBarIdleOpacity.clampedDelaySeconds(
-            sender.integerValue
-        )
-        idleOpacityDelayField.integerValue = seconds
-        onIdleOpacityDelayChanged(seconds)
     }
 
     private func updateCustomOriginFieldsEnabled(for position: TouchBarDisplayPosition) {

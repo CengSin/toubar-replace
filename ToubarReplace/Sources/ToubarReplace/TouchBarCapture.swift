@@ -148,9 +148,6 @@ final class TouchBarCapture: @unchecked Sendable {
     typealias NoticeHandler = @Sendable (TouchBarCaptureNotice) -> Void
     typealias ErrorHandler = @Sendable (TouchBarCaptureError) -> Void
 
-    static let minimumFramesPerSecond = 1
-    static let maximumFramesPerSecond = 30
-    static let defaultFramesPerSecond = 30
     private static let minimumBlankFrameCount = 2
     private static let minimumBlankFrameDuration: UInt64 = 500_000_000
     private static let streamStartupTimeout: DispatchTimeInterval = .seconds(5)
@@ -158,22 +155,6 @@ final class TouchBarCapture: @unchecked Sendable {
         subsystem: "com.toubarreplace.app",
         category: "TouchBarDisplayStream"
     )
-
-    /// CGDisplayStream requires both a strong retain and a use-count claim when
-    /// a frame surface outlives its callback. Releasing this wrapper makes the
-    /// surface available for WindowServer reuse again.
-    private final class DeferredFrameSurface {
-        let surface: IOSurfaceRef
-
-        init(_ surface: IOSurfaceRef) {
-            self.surface = surface
-            IOSurfaceIncrementUseCount(surface)
-        }
-
-        deinit {
-            IOSurfaceDecrementUseCount(surface)
-        }
-    }
 
     private let workerQueue = DispatchQueue(
         label: "com.toubarreplace.display-stream",
@@ -185,11 +166,6 @@ final class TouchBarCapture: @unchecked Sendable {
     private let onFrame: FrameHandler
     private let onNotice: NoticeHandler
     private let onError: ErrorHandler
-    private var frameIntervalNanoseconds: UInt64
-    private var lastDeliveredAt: UInt64 = 0
-    private var pendingSurface: DeferredFrameSurface?
-    private var pendingFrameDeliveryScheduled = false
-    private var pendingFrameDeliveryToken: UInt64 = 0
     private var stream: CGDisplayStream?
     private var stopped = true
     private var generation: UInt64 = 0
@@ -202,14 +178,10 @@ final class TouchBarCapture: @unchecked Sendable {
     private var hasLoggedFirstFrame = false
 
     init(
-        framesPerSecond: Int = TouchBarCapture.defaultFramesPerSecond,
         onFrame: @escaping FrameHandler,
         onNotice: @escaping NoticeHandler,
         onError: @escaping ErrorHandler
     ) {
-        self.frameIntervalNanoseconds = Self.frameInterval(
-            framesPerSecond: framesPerSecond
-        )
         self.onFrame = onFrame
         self.onNotice = onNotice
         self.onError = onError
@@ -245,22 +217,6 @@ final class TouchBarCapture: @unchecked Sendable {
             self.lastNotice = nil
             self.startStream(generation: self.generation)
         }
-    }
-
-    func updateFramesPerSecond(_ framesPerSecond: Int) {
-        workerQueue.async { [weak self] in
-            self?.frameIntervalNanoseconds = Self.frameInterval(
-                framesPerSecond: framesPerSecond
-            )
-        }
-    }
-
-    private static func frameInterval(framesPerSecond: Int) -> UInt64 {
-        let clamped = min(
-            max(framesPerSecond, minimumFramesPerSecond),
-            maximumFramesPerSecond
-        )
-        return 1_000_000_000 / UInt64(clamped)
     }
 
     private func startStream(generation: UInt64) {
@@ -327,11 +283,7 @@ final class TouchBarCapture: @unchecked Sendable {
 
             consecutiveBlackFrames = 0
             firstBlankFrameAt = nil
-            submitSurface(
-                surface,
-                at: DispatchTime.now().uptimeNanoseconds,
-                generation: generation
-            )
+            convertAndDeliver(surface)
 
         case .frameBlank:
             hasReceivedStreamActivity = true
@@ -353,7 +305,6 @@ final class TouchBarCapture: @unchecked Sendable {
     }
 
     private func handleBlankFrame() {
-        pendingSurface = nil
         let timestamp = DispatchTime.now().uptimeNanoseconds
         consecutiveBlackFrames += 1
         if firstBlankFrameAt == nil {
@@ -381,71 +332,13 @@ final class TouchBarCapture: @unchecked Sendable {
         )
     }
 
-    private func shouldDeliver(at timestamp: UInt64) -> Bool {
-        guard lastDeliveredAt > 0, timestamp >= lastDeliveredAt else {
-            return true
-        }
-        return timestamp - lastDeliveredAt >= frameIntervalNanoseconds
-    }
-
-    private func submitSurface(
-        _ surface: IOSurfaceRef,
-        at timestamp: UInt64,
-        generation: UInt64
-    ) {
-        guard !shouldDeliver(at: timestamp) else {
-            pendingSurface = nil
-            convertAndDeliver(surface, at: timestamp)
-            return
-        }
-
-        // CGDisplayStream may send a short burst of transition frames and then
-        // stay idle. Retain only the latest surface so the final stable frame is
-        // rendered after the FPS limiter instead of converting every source frame.
-        pendingSurface = DeferredFrameSurface(surface)
-        guard !pendingFrameDeliveryScheduled else { return }
-        pendingFrameDeliveryScheduled = true
-        pendingFrameDeliveryToken &+= 1
-        let deliveryToken = pendingFrameDeliveryToken
-
-        let elapsed = timestamp - lastDeliveredAt
-        let remaining = frameIntervalNanoseconds - elapsed
-        workerQueue.asyncAfter(
-            deadline: .now() + .nanoseconds(Int(remaining))
-        ) { [weak self] in
-            guard
-                let self,
-                !self.stopped,
-                generation == self.generation,
-                deliveryToken == self.pendingFrameDeliveryToken
-            else {
-                return
-            }
-            self.pendingFrameDeliveryScheduled = false
-            guard let pendingSurface = self.pendingSurface else { return }
-            self.pendingSurface = nil
-            self.convertAndDeliver(
-                pendingSurface.surface,
-                at: DispatchTime.now().uptimeNanoseconds
-            )
-        }
-    }
-
-    private func convertAndDeliver(
-        _ surface: IOSurfaceRef,
-        at timestamp: UInt64
-    ) {
+    private func convertAndDeliver(_ surface: IOSurfaceRef) {
         guard let image = makeImage(from: surface) else {
             report(.invalidSurface)
             return
         }
-        deliverFrame(image, at: timestamp)
-    }
-
-    private func deliverFrame(_ image: CGImage, at timestamp: UInt64) {
         lastError = nil
         lastNotice = nil
-        lastDeliveredAt = timestamp
         onFrame(image)
         if !hasLoggedFirstFrame {
             hasLoggedFirstFrame = true
@@ -524,10 +417,6 @@ final class TouchBarCapture: @unchecked Sendable {
     }
 
     private func resetFrameDeliveryState() {
-        lastDeliveredAt = 0
-        pendingSurface = nil
-        pendingFrameDeliveryScheduled = false
-        pendingFrameDeliveryToken &+= 1
         consecutiveBlackFrames = 0
         firstBlankFrameAt = nil
         hasReceivedStreamActivity = false

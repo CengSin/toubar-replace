@@ -954,69 +954,29 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            TouchBarCapture.minimumFramesPerSecond == 1
-                && TouchBarCapture.defaultFramesPerSecond == 30
-                && TouchBarCapture.maximumFramesPerSecond == 30,
-            "capture frame-rate bounds changed unexpectedly",
+            TouchBarHoverOpacity.normal == 1
+                && TouchBarHoverOpacity.hovered == 0.3,
+            "desktop hover opacity defaults changed unexpectedly",
             failures: &failures
         )
         expect(
-            TouchBarIdleOpacity.active == 1
-                && TouchBarIdleOpacity.idle == 0.3
-                && TouchBarIdleOpacity.delay == .seconds(5)
-                && TouchBarIdleOpacity.minimumDelaySeconds == 1
-                && TouchBarIdleOpacity.defaultDelaySeconds == 5
-                && TouchBarIdleOpacity.maximumDelaySeconds == 300,
-            "idle-opacity defaults changed unexpectedly",
+            TouchBarHoverOpacity.targetAlpha(isMouseInside: false)
+                == TouchBarHoverOpacity.normal
+                && TouchBarHoverOpacity.targetAlpha(isMouseInside: true)
+                == TouchBarHoverOpacity.hovered,
+            "desktop window must drop to 30% opacity while the cursor is inside",
             failures: &failures
         )
         expect(
-            TouchBarIdleOpacity.clampedDelaySeconds(0) == 1
-                && TouchBarIdleOpacity.clampedDelaySeconds(5) == 5
-                && TouchBarIdleOpacity.clampedDelaySeconds(301) == 300,
-            "idle-opacity delay must stay within the settings range",
-            failures: &failures
-        )
-        expect(
-            !TouchBarIdleOpacity.shouldPollOcclusion(isIdle: false)
-                && TouchBarIdleOpacity.shouldPollOcclusion(isIdle: true),
-            "occlusion polling must run only after capture becomes idle",
-            failures: &failures
-        )
-        expect(
-            TouchBarIdleOpacity.targetAlpha(
-                isIdle: false,
-                isObscuringOtherAppContent: true
-            ) == TouchBarIdleOpacity.active
-                && TouchBarIdleOpacity.targetAlpha(
-                    isIdle: true,
-                    isObscuringOtherAppContent: true
-                ) == TouchBarIdleOpacity.idle
-                && TouchBarIdleOpacity.targetAlpha(
-                    isIdle: true,
-                    isObscuringOtherAppContent: false
-                ) == TouchBarIdleOpacity.active,
-            "idle opacity must remain active unless idle content is obscured",
-            failures: &failures
-        )
-        expect(
-            !TouchBarIdleOpacity.allowsIdle(
-                captureRunning: false,
-                scene: .workspace
+            TouchBarHoverOpacity.isMouseInside(
+                windowFrame: CGRect(x: 100, y: 0, width: 1_000, height: 40),
+                mouseLocation: CGPoint(x: 120, y: 10)
             )
-                && !TouchBarIdleOpacity.allowsIdle(
-                    captureRunning: true,
-                    scene: .workspace
-                )
-                && !TouchBarIdleOpacity.allowsIdle(
-                    captureRunning: false,
-                    scene: .mirror
-                )
-                && TouchBarIdleOpacity.allowsIdle(
-                    captureRunning: true,
-                    scene: .mirror
+                && !TouchBarHoverOpacity.isMouseInside(
+                    windowFrame: CGRect(x: 100, y: 0, width: 1_000, height: 40),
+                    mouseLocation: CGPoint(x: 50, y: 10)
                 ),
-            "idle fade must only run on the live capture mirror",
+            "hover opacity must follow the desktop window frame, not physical Touch Bar",
             failures: &failures
         )
         if let firstImage = makeTestImage(width: 1),
@@ -1040,116 +1000,6 @@ enum ToubarReplaceSmokeTest {
         } else {
             failures.append("could not create frame-coalescing smoke-test images")
         }
-        expect(
-            !MirrorWindowOcclusion.isObscurableContentWindow(
-                ownerPID: 42,
-                selfPID: 42,
-                layer: 0,
-                bundleIdentifier: "com.example.App",
-                ownerName: "App"
-            ),
-            "own process windows must not count as occlusion content",
-            failures: &failures
-        )
-        expect(
-            !MirrorWindowOcclusion.isObscurableContentWindow(
-                ownerPID: 7,
-                selfPID: 42,
-                layer: 0,
-                bundleIdentifier: "com.apple.dock",
-                ownerName: "Dock"
-            ),
-            "Dock must not count as occlusion content",
-            failures: &failures
-        )
-        expect(
-            MirrorWindowOcclusion.isObscurableContentWindow(
-                ownerPID: 7,
-                selfPID: 42,
-                layer: 0,
-                bundleIdentifier: "com.google.Chrome",
-                ownerName: "Google Chrome"
-            ),
-            "Chrome content must count as occlusion content",
-            failures: &failures
-        )
-        expect(
-            !MirrorWindowOcclusion.isObscurableContentWindow(
-                ownerPID: 7,
-                selfPID: 42,
-                layer: -2_147_483_646,
-                bundleIdentifier: nil,
-                ownerName: "Wallpaper"
-            ),
-            "desktop/negative-layer windows must not count as occlusion",
-            failures: &failures
-        )
-        let mirrorBounds = CGRect(x: 100, y: 0, width: 1_000, height: 40)
-        let windows: [MirrorOcclusionWindowInfo] = [
-            MirrorOcclusionWindowInfo(
-                windowNumber: 1,
-                ownerPID: 42,
-                layer: 3,
-                bounds: mirrorBounds,
-                ownerName: "ToubarReplace",
-                bundleIdentifier: "com.toubarreplace.app"
-            ),
-            MirrorOcclusionWindowInfo(
-                windowNumber: 2,
-                ownerPID: 7,
-                layer: 0,
-                bounds: CGRect(x: 0, y: 0, width: 1_440, height: 900),
-                ownerName: "Google Chrome",
-                bundleIdentifier: "com.google.Chrome"
-            ),
-        ]
-        expect(
-            MirrorWindowOcclusion.isObscuringOtherAppContent(
-                mirrorWindowNumber: 1,
-                mirrorBounds: mirrorBounds,
-                selfPID: 42,
-                windowsFrontToBack: windows
-            ),
-            "mirror over Chrome must enable occlusion-gated idle fade",
-            failures: &failures
-        )
-        expect(
-            !MirrorWindowOcclusion.isObscuringOtherAppContent(
-                mirrorWindowNumber: 1,
-                mirrorBounds: mirrorBounds,
-                selfPID: 42,
-                windowsFrontToBack: [
-                    windows[0],
-                    MirrorOcclusionWindowInfo(
-                        windowNumber: 3,
-                        ownerPID: 9,
-                        layer: 0,
-                        bounds: CGRect(x: 0, y: 200, width: 800, height: 600),
-                        ownerName: "Notes",
-                        bundleIdentifier: "com.apple.Notes"
-                    ),
-                ]
-            ),
-            "mirror over empty strip (app window elsewhere) must not enable idle fade",
-            failures: &failures
-        )
-        expect(
-            MirrorWindowOcclusion.overlapArea(
-                CGRect(x: 0, y: 0, width: 100, height: 40),
-                CGRect(x: 50, y: 0, width: 100, height: 40)
-            ) == 2_000,
-            "overlap area math",
-            failures: &failures
-        )
-        let converted = MirrorWindowOcclusion.cocoaRect(
-            fromCGWindowBounds: CGRect(x: 0, y: 0, width: 1_440, height: 900),
-            mainDisplayHeight: 900
-        )
-        expect(
-            converted == CGRect(x: 0, y: 0, width: 1_440, height: 900),
-            "main-display full CG bounds must map to Cocoa (0,0,W,H)",
-            failures: &failures
-        )
         expect(
             TouchBarSystemState.isControlStripExplicitlyEmpty(
                 fullCustomized: [],

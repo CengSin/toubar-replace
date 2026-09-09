@@ -47,139 +47,78 @@ enum WorkspaceTouchBarLayout {
         ).width
     }
 
-    /// Return control sits outside the 10-unit grid (design v2).
+    /// Return control sits outside the 10-unit grid (design v3).
+    /// Physical Workspace hosts this as a **separate** NSTouchBar item so the
+    /// system close-box slot cannot swallow its hits.
     static let switcherWidth: CGFloat = 44
     static let switcherContentGap: CGFloat = 10
 
-    /// Design grid on the tray: Path 4/10 | Agents 3/10 | Custom 3/10.
-    /// Path *zone* uses ``pathRegionScale`` of the unit share as its **base**
-    /// width; when the path plate needs more room for a long folder name, the
-    /// zone may grow (agents|custom share the remainder) up to
-    /// ``minimumAgentsCustomWidth`` floor. Path *plate* still hugs title and
-    /// is centered in the path zone.
+    /// Remaining width for the quota|apps tray after the dedicated back item.
+    static func preferredTrayWidth(
+        mirrorPixelSize: CGSize = TouchBarPreferences.mirrorPixelSize,
+        backingScaleFactor: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
+    ) -> CGFloat {
+        let full = preferredContentWidth(
+            mirrorPixelSize: mirrorPixelSize,
+            backingScaleFactor: backingScaleFactor
+        )
+        return max(
+            full - switcherWidth - switcherContentGap,
+            minimumContentWidth - switcherWidth - switcherContentGap
+        )
+    }
+
+    /// Design grid on the tray: Quota 4/10 | Apps 6/10.
     static let totalUnits = 10
-    static let pathUnits = 4
-    static let agentsUnits = 3
-    static let customUnits = 3
-    /// Base path zone as a fraction of the 4/10 unit share (1.0 = full design).
-    static let pathRegionScale: CGFloat = 1.0
-    /// Soft floor for the path plate region (includes zone insets).
-    static let minimumPathRegionWidth: CGFloat = 120
-    /// When a long folder name expands the path zone, agents|custom keep at
-    /// least this combined width so icon slots stay usable.
-    static let minimumAgentsCustomWidth: CGFloat = 280
+    static let quotaUnits = 4
+    static let appsUnits = 6
 
     /// Hairline between zones on the continuous tray.
     static let zoneDividerWidth: CGFloat = 1
-    /// Inset of path plate / icon slots inside each zone (design breathing room).
+    /// Inset of quota plate / icon slots inside each zone.
     static let zoneContentInset: CGFloat = 6
     /// Vertical inset of icon slots inside the tray control height.
     static let slotVerticalInset: CGFloat = 3
-    /// Extra right pad inside the tray so the last custom slot (+ / app) is not
-    /// clipped by system Function Row chrome.
-    static let trayTrailingSafeInset: CGFloat = 6
+    /// Extra right pad inside the tray so the last app slot is not clipped
+    /// by system Function Row chrome.
+    static let trayTrailingSafeInset: CGFloat = 12
 
-    /// Path *zone* width: design 4/10 of the usable tray × ``pathRegionScale``,
-    /// then grow if `pathPreferredWidth` (plate hug) needs more room so the
-    /// folder name is not middle-truncated. Cap expansion so agents|custom
-    /// retain ``minimumAgentsCustomWidth``.
-    static let minimumRecentsPillWidth: CGFloat = 96
-    static let recentsPillSpacing: CGFloat = 6
-    static let recentsCancelButtonWidth: CGFloat = 28
-    static let recentsCancelSpacing: CGFloat = 6
+    /// Equal three-bar groups keep at least this width; overflow scrolls.
+    static let quotaGroupMinimumWidth: CGFloat = 144
+    static let quotaGroupSpacing: CGFloat = 4
 
-    static func recentsPillWidth(forTitle title: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let textWidth = ceil(
-            (title as NSString).boundingRect(
-                with: NSSize(
-                    width: CGFloat.greatestFiniteMagnitude,
-                    height: 40
-                ),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: font]
-            ).width
-        )
-        return max(
-            textWidth + WorkspaceTouchBarStyle.horizontalPadding * 2 + 8,
-            minimumRecentsPillWidth
-        )
-    }
-
-    static func pathRegionWidth(
-        trayWidth: CGFloat,
-        pathPreferredWidth: CGFloat = 0,
-        pathFillsTray: Bool = false
-    ) -> CGFloat {
-        guard trayWidth > 0 else { return 0 }
-        if pathFillsTray {
-            return floor(trayWidth)
-        }
-        let unitShare = floor(
-            trayWidth * CGFloat(pathUnits) / CGFloat(totalUnits)
-        )
-        let baseWidth = max(floor(unitShare * pathRegionScale), 0)
-        // Plate is laid out inside zoneContentRect; zone must include insets.
-        let preferredZone = pathPreferredWidth > 0
-            ? ceil(pathPreferredWidth) + zoneContentInset * 2
-            : 0
-        let maxPathWidth = max(
-            trayWidth - minimumAgentsCustomWidth,
-            baseWidth
-        )
-        let desired = max(baseWidth, preferredZone, minimumPathRegionWidth)
-        return min(floor(desired), floor(maxPathWidth), trayWidth)
-    }
-
-    /// Split tray into path | agents | custom. Path uses base 4/10 (may grow
-    /// for long titles); remainder after path is split 1:1 for agents|custom.
+    /// Split tray into quota | apps at a fixed 4|6 share.
     static func trayZoneFrames(
-        tray: NSRect,
-        pathPreferredWidth: CGFloat = 0,
-        pathFillsTray: Bool = false
-    ) -> (path: NSRect, agents: NSRect, custom: NSRect) {
+        tray: NSRect
+    ) -> (quota: NSRect, apps: NSRect) {
         let usableWidth = max(tray.width - trayTrailingSafeInset, 0)
-        let pathWidth = pathRegionWidth(
-            trayWidth: usableWidth,
-            pathPreferredWidth: pathPreferredWidth,
-            pathFillsTray: pathFillsTray
+        let quotaWidth = floor(
+            usableWidth * CGFloat(quotaUnits) / CGFloat(totalUnits)
         )
-        let remainder = max(usableWidth - pathWidth, 0)
-        // agents:custom = 3:3
-        let agentsWidth = floor(remainder / 2)
-        let customWidth = max(remainder - agentsWidth, 0)
-        let path = NSRect(
+        let appsWidth = max(usableWidth - quotaWidth, 0)
+        let quota = NSRect(
             x: tray.minX,
             y: tray.minY,
-            width: pathWidth,
+            width: quotaWidth,
             height: tray.height
         )
-        let agents = NSRect(
-            x: path.maxX,
+        let apps = NSRect(
+            x: quota.maxX,
             y: tray.minY,
-            width: agentsWidth,
+            width: appsWidth,
             height: tray.height
         )
-        let custom = NSRect(
-            x: agents.maxX,
-            y: tray.minY,
-            width: customWidth,
-            height: tray.height
-        )
-        return (path, agents, custom)
+        return (quota, apps)
     }
 
     /// Full-bar strip: switcher (outside grid) + continuous tray.
     static func stripFrames(
-        in bounds: NSRect,
-        pathPreferredWidth: CGFloat = 0,
-        pathFillsTray: Bool = false
+        in bounds: NSRect
     ) -> (
         switcher: NSRect,
         tray: NSRect,
-        path: NSRect,
-        agents: NSRect,
-        custom: NSRect
+        quota: NSRect,
+        apps: NSRect
     ) {
         let height = min(
             WorkspaceTouchBarStyle.controlHeight,
@@ -204,12 +143,8 @@ enum WorkspaceTouchBarLayout {
             width: trayWidth,
             height: height
         )
-        let zones = trayZoneFrames(
-            tray: tray,
-            pathPreferredWidth: pathPreferredWidth,
-            pathFillsTray: pathFillsTray
-        )
-        return (switcher, tray, zones.path, zones.agents, zones.custom)
+        let zones = trayZoneFrames(tray: tray)
+        return (switcher, tray, zones.quota, zones.apps)
     }
 
     /// Full-width tray when switcher is not embedded (mirror fallback bar).
@@ -227,12 +162,7 @@ enum WorkspaceTouchBarLayout {
         )
     }
 
-    /// Slot count for the agents zone (at least 1 for placeholder).
-    static func agentSlotCount(agentCount: Int) -> Int {
-        max(agentCount, 1)
-    }
-
-    /// Slot count for custom zone: empty label, or apps + settings button.
+    /// Slot count for apps zone: empty label, or apps + settings button.
     static func customSlotCount(appCount: Int) -> Int {
         let count = max(0, min(appCount, CustomWorkspaceAppList.maxCount))
         return count == 0 ? 1 : count + 1
@@ -288,22 +218,39 @@ enum WorkspaceTouchBarLayout {
         region.insetBy(dx: zoneContentInset, dy: 0)
     }
 
-    /// Tray-only regions (path | agents | custom). Prefer `stripFrames` when
+    /// Equal three-bar columns. If they would shrink below
+    /// ``quotaGroupMinimumWidth``, keep that width and scroll horizontally.
+    static func quotaScrollArrangement(
+        plateWidth: CGFloat,
+        groupCount: Int
+    ) -> (groupWidth: CGFloat, contentWidth: CGFloat, needsScroll: Bool) {
+        let width = max(plateWidth, 0)
+        let count = max(groupCount, 0)
+        if count == 0 {
+            return (0, width, false)
+        }
+        let equal = equalSlotWidth(
+            regionWidth: width,
+            slotCount: count,
+            spacing: quotaGroupSpacing
+        )
+        if equal >= quotaGroupMinimumWidth {
+            return (equal, width, false)
+        }
+        let content = CGFloat(count) * quotaGroupMinimumWidth
+            + CGFloat(count - 1) * quotaGroupSpacing
+        return (quotaGroupMinimumWidth, content, content > width + 0.5)
+    }
+
+    /// Tray-only regions (quota | apps). Prefer `stripFrames` when
     /// the return button is in the same view.
     static func regionFrames(
-        in bounds: NSRect,
-        pathPreferredWidth: CGFloat = 0,
-        pathFillsTray: Bool = false
+        in bounds: NSRect
     ) -> (
-        path: NSRect,
-        agents: NSRect,
-        custom: NSRect
+        quota: NSRect,
+        apps: NSRect
     ) {
-        trayZoneFrames(
-            tray: bounds,
-            pathPreferredWidth: pathPreferredWidth,
-            pathFillsTray: pathFillsTray
-        )
+        trayZoneFrames(tray: bounds)
     }
 }
 
@@ -317,19 +264,25 @@ enum WorkspaceTouchBarStyle {
         blue: 34 / 255,
         alpha: 1
     )
-    /// Path plate + equal icon slots (same chrome weight).
+    /// Quota plate + equal icon slots (same chrome weight).
     static let itemBackground = NSColor(
         red: 48 / 255,
         green: 45 / 255,
         blue: 50 / 255,
         alpha: 1
     )
-    /// Pressed chrome for tray slots (agent / custom / path / switcher).
+    /// Pressed chrome for tray slots (quota / apps / switcher).
     static let itemHighlightedBackground = NSColor.white.withAlphaComponent(0.22)
     static let itemHighlightBorderColor = NSColor.white.withAlphaComponent(0.32)
     static let dividerColor = NSColor.white.withAlphaComponent(0.19)
     static let primaryTextColor = NSColor.white
     static let secondaryTextColor = NSColor.white.withAlphaComponent(0.72)
+    static let amberAccent = NSColor(
+        red: 232 / 255,
+        green: 160 / 255,
+        blue: 74 / 255,
+        alpha: 1
+    )
     static let controlHeight: CGFloat = 30
     static let cornerRadius: CGFloat = 7
     static let trayCornerRadius: CGFloat = 8
@@ -349,6 +302,19 @@ enum WorkspaceTouchBarStyle {
         NSFont.systemFont(ofSize: 10, weight: .regular)
     }
 
+    @MainActor
+    static var microFont: NSFont {
+        NSFont.systemFont(ofSize: 8, weight: .medium)
+    }
+
+    /// Time-to-reset bar (distinct from remaining-quota white/amber).
+    static let resetBarColor = NSColor(
+        red: 120 / 255,
+        green: 196 / 255,
+        blue: 188 / 255,
+        alpha: 1
+    )
+
     static let failureSymbolName: String? = nil
 
     @MainActor
@@ -365,30 +331,8 @@ enum WorkspaceTouchBarStyle {
         )
     }
 
-    @MainActor
-    static func agentSymbol(for id: AgentID) -> NSImage? {
-        let symbolName: String
-        switch id {
-        case .codex:
-            symbolName = "chevron.left.forwardslash.chevron.right"
-        case .claudeCode:
-            symbolName = "terminal"
-        case .cursor:
-            symbolName = "cursorarrow.rays"
-        case .grokBuild:
-            symbolName = "sparkles"
-        }
-        return symbol(
-            named: symbolName,
-            accessibilityDescription: id.rawValue
-        ) ?? symbol(
-            named: "circle.fill",
-            accessibilityDescription: id.rawValue
-        )
-    }
-
-    /// Bundled brand mark used when the agent has no local app icon.
-    /// Source files live under `Resources/AgentIcons/<AgentID.rawValue>.png`.
+    /// Bundled brand mark for a quota provider.
+    /// Source files live under `Resources/AgentIcons/<name>.png`.
     ///
     /// Resolution order (do **not** use `Bundle.module` here):
     /// - Packaged `.app`: `Contents/Resources/AgentIcons/` (see `Packaging/build-app.sh`)
@@ -400,8 +344,23 @@ enum WorkspaceTouchBarStyle {
     /// That path is invalid for codesigned apps, and SPM's flat `.bundle` is not
     /// a codesignable package — so packaging copies icons into main Resources only.
     @MainActor
-    static func agentDefaultIcon(for id: AgentID) -> NSImage? {
-        let resourceName = id.rawValue
+    static func providerIcon(for id: QuotaProviderID) -> NSImage? {
+        if let resourceName = id.iconResourceName,
+            let bundled = bundledIcon(named: resourceName)
+        {
+            return bundled
+        }
+        return NSImage(
+            systemSymbolName: id.placeholderSymbolName,
+            accessibilityDescription: id.displayName
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+                .applying(.init(paletteColors: [primaryTextColor]))
+        )
+    }
+
+    @MainActor
+    static func bundledIcon(named resourceName: String) -> NSImage? {
         var candidates: [URL?] = [
             Bundle.main.url(
                 forResource: resourceName,
@@ -436,22 +395,6 @@ enum WorkspaceTouchBarStyle {
             return image
         }
         return nil
-    }
-
-    @MainActor
-    static func agentIcon(for agent: AvailableAgent) -> NSImage? {
-        let sourceImage: NSImage?
-        if let applicationURL = agent.iconApplicationURL,
-            FileManager.default.fileExists(atPath: applicationURL.path)
-        {
-            sourceImage = NSWorkspace.shared.icon(forFile: applicationURL.path)
-            sourceImage?.isTemplate = false
-        } else if let defaultIcon = agentDefaultIcon(for: agent.id) {
-            sourceImage = defaultIcon
-        } else {
-            sourceImage = agentSymbol(for: agent.id)
-        }
-        return scaledIcon(from: sourceImage)
     }
 
     @MainActor
@@ -598,21 +541,44 @@ final class WorkspaceChromeButton: NSButton {
     }
 }
 
-/// Full-slot hit target that only reports highlight (chrome lives on the parent).
+/// Physical-bar return control used as `escapeKeyReplacementItemIdentifier`.
+/// Must not be a second default item: that blacks out the Workspace tray.
 @MainActor
-final class WorkspaceTransparentHitButton: NSButton {
-    var onHighlightChange: ((Bool) -> Void)?
+final class WorkspaceReturnItemView: NSView {
+    var onActivate: (() -> Void)?
+    var onWindowAttachmentChanged: ((Bool) -> Void)?
+
+    private let button = NSButton()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        isBordered = false
-        setButtonType(.momentaryChange)
-        title = ""
-        focusRingType = .none
-    }
-
-    convenience init() {
-        self.init(frame: .zero)
+        button.image = NSImage(
+            systemSymbolName: "chevron.backward",
+            accessibilityDescription: "返回 Touch Bar 镜像"
+        )
+        button.contentTintColor = NSColor.white
+        button.isBordered = false
+        button.bezelStyle = .texturedRounded
+        button.imageScaling = .scaleProportionallyDown
+        button.imagePosition = .imageOnly
+        button.toolTip = "点击返回 Touch Bar 镜像"
+        button.setAccessibilityLabel("返回 Touch Bar 镜像")
+        button.target = self
+        button.action = #selector(activate)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
+            button.widthAnchor.constraint(
+                equalToConstant: WorkspaceTouchBarLayout.switcherWidth
+            ),
+            button.heightAnchor.constraint(
+                equalToConstant: WorkspaceTouchBarStyle.controlHeight
+            ),
+        ])
     }
 
     @available(*, unavailable)
@@ -622,59 +588,35 @@ final class WorkspaceTransparentHitButton: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override var isHighlighted: Bool {
-        didSet { onHighlightChange?(isHighlighted && isEnabled) }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowAttachmentChanged?(window != nil)
     }
 
-    override func highlight(_ flag: Bool) {
-        super.highlight(flag)
-        onHighlightChange?(flag && isEnabled)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onHighlightChange?(isEnabled)
-        super.mouseDown(with: event)
-        onHighlightChange?(false)
+    @objc private func activate() {
+        onActivate?()
     }
 }
 
 @MainActor
 final class WorkspaceTouchBarContentView: NSView {
-    private let switcherButton = WorkspaceChromeButton()
     private let trayView = NSView()
-    private let pathView: NSView
-    private let agentsView: NSView
+    private let quotaView: NSView
     private let customView: NSView
-    private let pathAgentsDivider = NSView()
-    private let agentsCustomDivider = NSView()
-    private let agentsPlaceholder = NSTextField(labelWithString: "")
+    private let zoneDivider = NSView()
 
     var onWindowAttachmentChanged: ((Bool) -> Void)?
-    var onToggleWorkspace: (() -> Void)?
 
-    init(pathView: NSView, agentsView: NSView, customView: NSView) {
-        self.pathView = pathView
-        self.agentsView = agentsView
+    init(quotaView: NSView, customView: NSView) {
+        self.quotaView = quotaView
         self.customView = customView
         super.init(frame: .zero)
-        // Sole full-bar item: hug low so system grants available Function Row width.
+        // Tray item: hug low so the principal item fills remaining Function Row
+        // width after the dedicated back item.
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.required, for: .vertical)
         setContentCompressionResistancePriority(.required, for: .vertical)
-
-        switcherButton.image = NSImage(
-            systemSymbolName: "rectangle.on.rectangle.slash",
-            accessibilityDescription: "返回 Touch Bar 镜像"
-        )
-        switcherButton.contentTintColor = .white
-        switcherButton.imageScaling = .scaleProportionallyDown
-        switcherButton.imagePosition = .imageOnly
-        switcherButton.target = self
-        switcherButton.action = #selector(toggleWorkspace)
-        switcherButton.toolTip = "点击返回 Touch Bar 镜像"
-        switcherButton.setAccessibilityLabel("返回 Touch Bar 镜像")
-        addSubview(switcherButton)
 
         trayView.wantsLayer = true
         trayView.layer?.backgroundColor =
@@ -682,21 +624,12 @@ final class WorkspaceTouchBarContentView: NSView {
         trayView.layer?.cornerRadius = WorkspaceTouchBarStyle.trayCornerRadius
         addSubview(trayView)
 
-        addSubview(pathView)
-        addSubview(agentsView)
+        addSubview(quotaView)
         addSubview(customView)
-        for divider in [pathAgentsDivider, agentsCustomDivider] {
-            divider.wantsLayer = true
-            divider.layer?.backgroundColor = WorkspaceTouchBarStyle
-                .dividerColor.cgColor
-            addSubview(divider)
-        }
-        agentsPlaceholder.font = WorkspaceTouchBarStyle.secondaryFont
-        agentsPlaceholder.textColor = WorkspaceTouchBarStyle.secondaryTextColor
-        agentsPlaceholder.alignment = .center
-        agentsPlaceholder.lineBreakMode = .byTruncatingTail
-        agentsPlaceholder.isHidden = true
-        addSubview(agentsPlaceholder)
+        zoneDivider.wantsLayer = true
+        zoneDivider.layer?.backgroundColor = WorkspaceTouchBarStyle
+            .dividerColor.cgColor
+        addSubview(zoneDivider)
     }
 
     @available(*, unavailable)
@@ -705,9 +638,10 @@ final class WorkspaceTouchBarContentView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        // Stretch to hardware width; no fixed cap (design: full strip).
+        // Sole default item, but the return control lives in the escape slot.
+        // Prefer the tray width, not full DFR width, or the settings slot clips.
         NSSize(
-            width: NSView.noIntrinsicMetric,
+            width: WorkspaceTouchBarLayout.preferredTrayWidth(),
             height: WorkspaceTouchBarStyle.controlHeight
         )
     }
@@ -729,93 +663,45 @@ final class WorkspaceTouchBarContentView: NSView {
             ?? NSScreen.main?.backingScaleFactor
             ?? 2
         trayView.layer?.contentsScale = scale
-        switcherButton.layer?.contentsScale = scale
 
-        let typedPath = pathView as? WorkspaceTouchBarPathView
-        let fillsPathZone = typedPath?.fillsPathZone == true
-        let pathPreferred = fillsPathZone ? 0 : (typedPath?.preferredPillWidth ?? 0)
-        let strip = WorkspaceTouchBarLayout.stripFrames(
-            in: bounds,
-            pathPreferredWidth: pathPreferred
-        )
-        switcherButton.frame = strip.switcher
-        trayView.frame = strip.tray
+        let tray = WorkspaceTouchBarLayout.trayFrame(in: bounds)
+        trayView.frame = tray
+        let zones = WorkspaceTouchBarLayout.trayZoneFrames(tray: tray)
 
-        // Path plate hugs title, centered in the (scaled) path zone.
-        // Recents picker fills the whole path zone so multiple names fit.
-        let pathInner = WorkspaceTouchBarLayout.zoneContentRect(strip.path)
-        let pathHeight = max(
-            strip.tray.height - WorkspaceTouchBarLayout.slotVerticalInset * 2,
+        let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(zones.quota)
+        let plateHeight = max(
+            tray.height - WorkspaceTouchBarLayout.slotVerticalInset * 2,
             22
         )
-        if fillsPathZone {
-            pathView.frame = NSRect(
-                x: pathInner.minX,
-                y: strip.tray.midY - pathHeight / 2,
-                width: pathInner.width,
-                height: pathHeight
-            )
-        } else {
-            let pathPlateWidth = min(
-                max(pathPreferred, 1),
-                pathInner.width
-            )
-            pathView.frame = NSRect(
-                x: floor(pathInner.midX - pathPlateWidth / 2),
-                y: strip.tray.midY - pathHeight / 2,
-                width: pathPlateWidth,
-                height: pathHeight
-            )
-        }
-
-        let agentsInner = WorkspaceTouchBarLayout.zoneContentRect(strip.agents)
-        let customInner = WorkspaceTouchBarLayout.zoneContentRect(strip.custom)
-        agentsView.frame = NSRect(
-            x: agentsInner.minX,
-            y: strip.tray.minY,
-            width: agentsInner.width,
-            height: strip.tray.height
+        quotaView.frame = NSRect(
+            x: quotaInner.minX,
+            y: tray.midY - plateHeight / 2,
+            width: quotaInner.width,
+            height: plateHeight
         )
+
+        let appsInner = WorkspaceTouchBarLayout.zoneContentRect(zones.apps)
         customView.frame = NSRect(
-            x: customInner.minX,
-            y: strip.tray.minY,
-            width: customInner.width,
-            height: strip.tray.height
+            x: appsInner.minX,
+            y: tray.minY,
+            width: appsInner.width,
+            height: tray.height
         )
 
         let dividerHeight: CGFloat = 18
-        pathAgentsDivider.frame = NSRect(
+        zoneDivider.frame = NSRect(
             x: floor(
-                strip.agents.minX
+                zones.apps.minX
                     - WorkspaceTouchBarLayout.zoneDividerWidth / 2
             ),
-            y: floor(strip.tray.midY - dividerHeight / 2),
+            y: floor(tray.midY - dividerHeight / 2),
             width: WorkspaceTouchBarLayout.zoneDividerWidth,
             height: dividerHeight
         )
-        agentsCustomDivider.frame = NSRect(
-            x: floor(
-                strip.custom.minX
-                    - WorkspaceTouchBarLayout.zoneDividerWidth / 2
-            ),
-            y: floor(strip.tray.midY - dividerHeight / 2),
-            width: WorkspaceTouchBarLayout.zoneDividerWidth,
-            height: dividerHeight
-        )
-        agentsPlaceholder.frame = agentsView.frame.insetBy(dx: 4, dy: 2)
-        agentsView.needsLayout = true
         customView.needsLayout = true
         customView.layoutSubtreeIfNeeded()
-    }
-
-    func showAgentsPlaceholder(_ text: String?) {
-        agentsPlaceholder.stringValue = text ?? ""
-        agentsPlaceholder.isHidden = text == nil
-        agentsView.isHidden = text != nil
-    }
-
-    @objc private func toggleWorkspace() {
-        onToggleWorkspace?()
+        quotaView.needsLayout = true
+        quotaView.layoutSubtreeIfNeeded()
     }
 }
 
@@ -838,7 +724,7 @@ final class WorkspaceCustomAppsView: NSView {
 
         emptyButton.configureTitleChrome(
             title: "自定义app",
-            toolTip: "打开设置，管理常用应用（最多 3 个）"
+            toolTip: "打开设置，管理常用应用（最多 5 个）"
         )
         emptyButton.target = self
         emptyButton.action = #selector(openSettings)
@@ -846,7 +732,7 @@ final class WorkspaceCustomAppsView: NSView {
 
         settingsButton.configureTitleChrome(
             title: "",
-            toolTip: "打开设置，管理常用应用（最多 3 个）"
+            toolTip: "打开设置，管理常用应用（最多 5 个）"
         )
         settingsButton.image = NSImage(
             systemSymbolName: "gearshape",
@@ -897,7 +783,11 @@ final class WorkspaceCustomAppsView: NSView {
         superview?.needsLayout = true
     }
 
-    /// Spread controls evenly across the custom zone (3/10 of the bar).
+    var settingsButtonFrame: NSRect {
+        settingsButton.isHidden ? .zero : settingsButton.frame
+    }
+
+    /// Spread controls evenly across the apps zone (6/10 of the bar).
     /// `region` must be in this view's coordinate space (usually `bounds`).
     func layoutEqualSlots(in region: NSRect) {
         guard region.width > 1, region.height > 1, !slotViews.isEmpty else {
@@ -944,58 +834,110 @@ final class WorkspaceCustomAppsView: NSView {
     }
 }
 
+/// One vertical remaining-quota / reset bar with a short caption underneath.
 @MainActor
-final class WorkspaceTouchBarPathView: NSView {
-    private let imageView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let actionButton = WorkspaceTransparentHitButton()
-    private var isInteractionEnabled = true
-    private var showsIcon = true
-    private var recentsMode = false
-    private var recentURLs: [URL] = []
-    private var recentButtons: [WorkspaceChromeButton] = []
-    private let recentsScrollView = NSScrollView()
-    private let recentsDocumentView = NSView()
-    private let cancelButton = WorkspaceChromeButton()
-    var onActivate: (() -> Void)?
-    var onSelectRecent: ((URL) -> Void)?
-    var onBrowse: (() -> Void)?
-    var onCancel: (() -> Void)?
-    /// Recents stay inside the path zone (do not take the whole tray).
-    var fillsPathZone: Bool { recentsMode }
+final class QuotaVerticalBarView: NSView {
+    private let track = NSView()
+    private let fill = NSView()
+    private let caption = NSTextField(labelWithString: "")
+    private var metric = QuotaBarMetric(
+        ratio: nil,
+        caption: "",
+        valueText: "—",
+        isHighlighted: false
+    )
+    private var fillColor = NSColor.white
 
-    /// Content-hugging width for the path pill (before min/max clamp in layout).
-    /// Parent uses this to size the plate and optionally grow the path zone so
-    /// long folder names are not truncated by a fixed 4/10 grid.
-    var preferredPillWidth: CGFloat {
-        let title = titleLabel.stringValue as NSString
-        let font = titleLabel.font ?? WorkspaceTouchBarStyle.titleFont
-        // boundingRect matches AppKit drawing more closely than size(with:)
-        // for CJK / semibold system fonts on Touch Bar.
-        let textWidth = ceil(
-            title.boundingRect(
-                with: NSSize(
-                    width: CGFloat.greatestFiniteMagnitude,
-                    height: 40
-                ),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: font]
-            ).width
-        )
-        let iconPart: CGFloat
-        if showsIcon {
-            iconPart = WorkspaceTouchBarStyle.iconWidth
-                + WorkspaceTouchBarStyle.imageTitleSpacing
-        } else {
-            iconPart = 0
-        }
-        let raw = WorkspaceTouchBarStyle.horizontalPadding * 2
-            + iconPart
-            + textWidth
-        // Extra safety so the label frame is never 1–2pt short of the glyph run
-        // (which would force byTruncatingMiddle even when the zone can grow).
-        return max(raw + 6, 120)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        track.wantsLayer = true
+        track.layer?.cornerRadius = 2
+        track.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        addSubview(track)
+        fill.wantsLayer = true
+        fill.layer?.cornerRadius = 2
+        track.addSubview(fill)
+        caption.font = WorkspaceTouchBarStyle.microFont
+        caption.textColor = WorkspaceTouchBarStyle.secondaryTextColor
+        caption.isBezeled = false
+        caption.drawsBackground = false
+        caption.isEditable = false
+        caption.isSelectable = false
+        caption.alignment = .center
+        caption.lineBreakMode = .byClipping
+        addSubview(caption)
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func display(_ metric: QuotaBarMetric, fillColor: NSColor) {
+        self.metric = metric
+        self.fillColor = fillColor
+        caption.stringValue = metric.caption
+        caption.textColor = metric.isHighlighted
+            ? WorkspaceTouchBarStyle.amberAccent
+            : WorkspaceTouchBarStyle.secondaryTextColor
+        fill.layer?.backgroundColor = fillColor.cgColor
+        fill.isHidden = false
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let scale = window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+        track.layer?.contentsScale = scale
+        fill.layer?.contentsScale = scale
+        guard bounds.width > 1, bounds.height > 1 else { return }
+
+        let captionHeight: CGFloat = 10
+        let trackWidth: CGFloat = min(max(floor(bounds.width * 0.42), 6), 10)
+        let trackHeight = max(bounds.height - captionHeight - 1, 8)
+        let trackX = floor((bounds.width - trackWidth) / 2)
+        track.frame = NSRect(
+            x: trackX,
+            y: captionHeight,
+            width: trackWidth,
+            height: trackHeight
+        )
+        let ratio = CGFloat(min(max(metric.ratio ?? 0, 0), 1))
+        let fillHeight: CGFloat
+        if metric.ratio == nil {
+            fillHeight = 2
+            fill.alphaValue = 0.28
+        } else {
+            fillHeight = max(floor(trackHeight * ratio), 2)
+            fill.alphaValue = 1
+        }
+        fill.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: trackWidth,
+            height: fillHeight
+        )
+        caption.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: captionHeight
+        )
+    }
+}
+
+@MainActor
+final class QuotaProviderGroupView: NSView {
+    private let iconView = NSImageView()
+    private let fiveHourBar = QuotaVerticalBarView()
+    private let weeklyBar = QuotaVerticalBarView()
+    private let resetBar = QuotaVerticalBarView()
+    private(set) var state: QuotaProviderGroupState?
+    private var isPressed = false
+
+    var onActivate: ((QuotaProviderID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1006,53 +948,14 @@ final class WorkspaceTouchBarPathView: NSView {
             highlighted: false,
             enabled: true
         )
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.contentTintColor = WorkspaceTouchBarStyle.primaryTextColor
-        imageView.wantsLayer = true
-        addSubview(imageView)
-        titleLabel.font = WorkspaceTouchBarStyle.titleFont
-        titleLabel.textColor = WorkspaceTouchBarStyle.primaryTextColor
-        titleLabel.alignment = .left
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.cell?.truncatesLastVisibleLine = true
-        addSubview(titleLabel)
-
-        actionButton.target = self
-        actionButton.action = #selector(activatePath)
-        actionButton.toolTip = nil
-        actionButton.onHighlightChange = { [weak self] highlighted in
-            self?.applyPathChrome(highlighted: highlighted)
-        }
-        addSubview(actionButton)
-
-        recentsScrollView.drawsBackground = false
-        recentsScrollView.hasHorizontalScroller = false
-        recentsScrollView.hasVerticalScroller = false
-        recentsScrollView.autohidesScrollers = true
-        recentsScrollView.borderType = .noBorder
-        recentsScrollView.horizontalScrollElasticity = .allowed
-        recentsScrollView.verticalScrollElasticity = .none
-        recentsScrollView.usesPredominantAxisScrolling = true
-        recentsScrollView.documentView = recentsDocumentView
-        recentsScrollView.isHidden = true
-        addSubview(recentsScrollView)
-
-        cancelButton.configureTitleChrome(title: "", toolTip: "取消，返回当前路径")
-        cancelButton.image = NSImage(
-            systemSymbolName: "xmark",
-            accessibilityDescription: "取消"
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        )
-        cancelButton.imagePosition = .imageOnly
-        cancelButton.imageScaling = .scaleProportionallyDown
-        cancelButton.contentTintColor = WorkspaceTouchBarStyle.primaryTextColor
-        cancelButton.target = self
-        cancelButton.action = #selector(cancelRecents)
-        cancelButton.isHidden = true
-        cancelButton.setAccessibilityLabel("取消")
-        addSubview(cancelButton)
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = WorkspaceTouchBarStyle.primaryTextColor
+        addSubview(iconView)
+        addSubview(fiveHourBar)
+        addSubview(weeklyBar)
+        addSubview(resetBar)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
     }
 
     @available(*, unavailable)
@@ -1062,188 +965,233 @@ final class WorkspaceTouchBarPathView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        refreshChrome()
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let wasPressed = isPressed
+        isPressed = false
+        refreshChrome()
+        if wasPressed, bounds.contains(convert(event.locationInWindow, from: nil)),
+            let provider = state?.provider
+        {
+            onActivate?(provider)
+        }
+        super.mouseUp(with: event)
+    }
+
+    func display(_ state: QuotaProviderGroupState) {
+        self.state = state
+        iconView.image = WorkspaceTouchBarStyle.providerIcon(for: state.provider)
+        fiveHourBar.display(
+            state.fiveHour,
+            fillColor: state.fiveHour.isHighlighted
+                ? WorkspaceTouchBarStyle.amberAccent
+                : .white
+        )
+        weeklyBar.display(
+            state.weekly,
+            fillColor: state.weekly.isHighlighted
+                ? WorkspaceTouchBarStyle.amberAccent
+                : .white
+        )
+        resetBar.display(
+            state.reset,
+            fillColor: WorkspaceTouchBarStyle.resetBarColor
+        )
+        toolTip = state.tooltip
+        setAccessibilityLabel("打开 \(state.title)")
+        refreshChrome()
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
-        let contentsScale = window?.backingScaleFactor
+        let scale = window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor
             ?? 2
-        layer?.contentsScale = contentsScale
-        imageView.layer?.contentsScale = contentsScale
-        if recentsMode {
-            actionButton.frame = .zero
-            let cancelWidth = WorkspaceTouchBarLayout.recentsCancelButtonWidth
-            let gap = WorkspaceTouchBarLayout.recentsCancelSpacing
-            cancelButton.frame = NSRect(
-                x: 0,
-                y: 0,
-                width: cancelWidth,
-                height: bounds.height
-            )
-            let scrollX = cancelWidth + gap
-            recentsScrollView.frame = NSRect(
-                x: scrollX,
-                y: 0,
-                width: max(bounds.width - scrollX, 0),
-                height: bounds.height
-            )
-            var x: CGFloat = 0
-            let spacing = WorkspaceTouchBarLayout.recentsPillSpacing
-            let height = max(bounds.height, 1)
-            for button in recentButtons {
-                let width = WorkspaceTouchBarLayout.recentsPillWidth(
-                    forTitle: button.title
-                )
-                button.frame = NSRect(x: x, y: 0, width: width, height: height)
-                x += width + spacing
-            }
-            let contentWidth = max(x - spacing, recentsScrollView.bounds.width)
-            recentsDocumentView.frame = NSRect(
-                x: 0,
-                y: 0,
-                width: contentWidth,
-                height: height
-            )
-            return
-        }
-        actionButton.frame = bounds
-        let iconSize = WorkspaceTouchBarStyle.iconWidth
-        let iconX = WorkspaceTouchBarStyle.horizontalPadding
-        imageView.frame = NSRect(
-            x: iconX,
-            y: floor(bounds.midY - iconSize / 2),
+        layer?.contentsScale = scale
+        guard bounds.width > 1, bounds.height > 1 else { return }
+
+        let pad: CGFloat = 5
+        let iconSize = min(WorkspaceTouchBarStyle.agentIconSize - 4, bounds.height - 8)
+        iconView.frame = NSRect(
+            x: pad,
+            y: floor((bounds.height - iconSize) / 2),
             width: iconSize,
             height: iconSize
         )
-        let titleX = imageView.isHidden
-            ? WorkspaceTouchBarStyle.horizontalPadding
-            : imageView.frame.maxX + WorkspaceTouchBarStyle.imageTitleSpacing
-        let titleHeight = ceil(titleLabel.intrinsicContentSize.height)
-        titleLabel.frame = NSRect(
-            x: titleX,
-            y: floor(bounds.midY - titleHeight / 2),
-            width: max(
-                bounds.width - titleX - WorkspaceTouchBarStyle.horizontalPadding,
-                0
-            ),
-            height: titleHeight
+        let barsX = iconView.frame.maxX + 4
+        let barsWidth = max(bounds.width - barsX - 4, 24)
+        let barWidth = floor(barsWidth / 3)
+        let barHeight = max(bounds.height - 4, 16)
+        let barY = floor((bounds.height - barHeight) / 2)
+        fiveHourBar.frame = NSRect(x: barsX, y: barY, width: barWidth, height: barHeight)
+        weeklyBar.frame = NSRect(
+            x: barsX + barWidth,
+            y: barY,
+            width: barWidth,
+            height: barHeight
+        )
+        resetBar.frame = NSRect(
+            x: barsX + barWidth * 2,
+            y: barY,
+            width: max(barsWidth - barWidth * 2, 8),
+            height: barHeight
         )
     }
 
-    override func accessibilityPerformPress() -> Bool {
-        guard isInteractionEnabled else { return false }
-        onActivate?()
-        return true
-    }
-
-    @objc private func activatePath() {
-        guard isInteractionEnabled else { return }
-        onActivate?()
-    }
-
-    private func applyPathChrome(highlighted: Bool) {
-        if recentsMode {
-            layer?.backgroundColor = NSColor.clear.cgColor
-            layer?.borderWidth = 0
-            layer?.cornerRadius = 0
-            return
-        }
+    private func refreshChrome() {
         WorkspaceTouchBarStyle.applyItemChrome(
             to: layer,
-            highlighted: highlighted,
-            enabled: isInteractionEnabled
+            highlighted: isPressed,
+            enabled: true
         )
-    }
-
-    func display(
-        image: NSImage?,
-        title: String,
-        toolTip: String?,
-        enabled: Bool
-    ) {
-        recentsMode = false
-        clearRecentButtons()
-        recentsScrollView.isHidden = true
-        cancelButton.isHidden = true
-        imageView.isHidden = image == nil
-        titleLabel.isHidden = false
-        actionButton.isHidden = false
-        imageView.image = image
-        titleLabel.stringValue = title
-        self.toolTip = toolTip
-        isInteractionEnabled = enabled
-        actionButton.isEnabled = enabled
-        actionButton.toolTip = toolTip
-        alphaValue = enabled ? 1 : 0.42
-        showsIcon = image != nil
-        applyPathChrome(highlighted: false)
-        needsLayout = true
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(title)
-        actionButton.setAccessibilityLabel(title)
-        // Parent three-zone layout depends on preferredPillWidth.
-        superview?.needsLayout = true
-    }
-
-    func displayRecents(_ urls: [URL]) {
-        recentsMode = true
-        recentURLs = urls
-        clearRecentButtons()
-        imageView.isHidden = true
-        titleLabel.isHidden = true
-        actionButton.isHidden = true
-        recentsScrollView.isHidden = false
-        cancelButton.isHidden = false
-        isInteractionEnabled = true
-        alphaValue = 1
-        toolTip = "左右滑动选择项目，点 × 取消"
-        for (index, url) in urls.enumerated() {
-            let button = WorkspaceChromeButton()
-            button.configureTitleChrome(
-                title: url.lastPathComponent,
-                toolTip: url.path
-            )
-            button.tag = index
-            button.target = self
-            button.action = #selector(selectRecent(_:))
-            recentsDocumentView.addSubview(button)
-            recentButtons.append(button)
+        if state?.isRecommended == true, !isPressed {
+            layer?.borderWidth = 1
+            layer?.borderColor = WorkspaceTouchBarStyle.amberAccent
+                .withAlphaComponent(0.7).cgColor
         }
-        let browse = WorkspaceChromeButton()
-        browse.configureTitleChrome(
-            title: "选取…",
-            toolTip: "选择其他项目文件夹"
-        )
-        browse.target = self
-        browse.action = #selector(browseFolder)
-        recentsDocumentView.addSubview(browse)
-        recentButtons.append(browse)
-        applyPathChrome(highlighted: false)
-        recentsScrollView.contentView.scroll(to: .zero)
-        needsLayout = true
+    }
+}
+
+@MainActor
+final class QuotaPlateView: NSView {
+    private let emptyLabel = NSTextField(labelWithString: "暂无额度")
+    private let scrollView = NSScrollView()
+    private let documentView = NSView()
+    private(set) var groupViews: [QuotaProviderGroupView] = []
+    private var state = QuotaBoardState.empty
+    private(set) var contentWidth: CGFloat = 0
+    private(set) var needsHorizontalScroll = false
+
+    var onOpenProvider: ((QuotaProviderID) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        emptyLabel.font = WorkspaceTouchBarStyle.secondaryFont
+        emptyLabel.textColor = WorkspaceTouchBarStyle.secondaryTextColor
+        emptyLabel.isBezeled = false
+        emptyLabel.drawsBackground = false
+        emptyLabel.isEditable = false
+        emptyLabel.isSelectable = false
+        emptyLabel.alignment = .center
+        emptyLabel.lineBreakMode = .byClipping
+        addSubview(emptyLabel)
+
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScrollElasticity = .none
+        scrollView.horizontalScrollElasticity = .allowed
+        scrollView.usesPredominantAxisScrolling = true
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets()
+        scrollView.scrollerInsets = NSEdgeInsets()
+        scrollView.allowedTouchTypes = [.direct, .indirect]
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
+        documentView.wantsLayer = true
+        scrollView.documentView = documentView
+        addSubview(scrollView)
+
         setAccessibilityElement(true)
-        setAccessibilityRole(.scrollArea)
-        setAccessibilityLabel("最近项目")
-        superview?.needsLayout = true
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("订阅额度")
+        display(.empty)
     }
 
-    private func clearRecentButtons() {
-        recentButtons.forEach { $0.removeFromSuperview() }
-        recentButtons.removeAll()
-        recentURLs = recentsMode ? recentURLs : []
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    @objc private func selectRecent(_ sender: NSButton) {
-        guard recentURLs.indices.contains(sender.tag) else { return }
-        onSelectRecent?(recentURLs[sender.tag])
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func display(_ state: QuotaBoardState) {
+        self.state = state
+        groupViews.forEach { $0.removeFromSuperview() }
+        groupViews.removeAll()
+        emptyLabel.isHidden = !state.isEmpty
+        emptyLabel.stringValue = "暂无额度"
+        scrollView.isHidden = state.isEmpty
+        toolTip = state.isEmpty ? "暂无订阅额度数据" : nil
+        for group in state.groups {
+            let view = QuotaProviderGroupView()
+            view.onActivate = { [weak self] provider in
+                self?.onOpenProvider?(provider)
+            }
+            view.display(group)
+            documentView.addSubview(view)
+            groupViews.append(view)
+        }
+        needsLayout = true
     }
 
-    @objc private func browseFolder() {
-        onBrowse?()
-    }
-
-    @objc private func cancelRecents() {
-        onCancel?()
+    override func layout() {
+        super.layout()
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        emptyLabel.frame = bounds
+        scrollView.frame = bounds
+        guard !groupViews.isEmpty else {
+            contentWidth = bounds.width
+            needsHorizontalScroll = false
+            documentView.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: bounds.width,
+                height: bounds.height
+            )
+            return
+        }
+        let previousOffset = scrollView.contentView.bounds.origin.x
+        let arrangement = WorkspaceTouchBarLayout.quotaScrollArrangement(
+            plateWidth: bounds.width,
+            groupCount: groupViews.count
+        )
+        contentWidth = arrangement.contentWidth
+        needsHorizontalScroll = arrangement.needsScroll
+        scrollView.horizontalScrollElasticity = arrangement.needsScroll
+            ? .allowed
+            : .none
+        documentView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: arrangement.contentWidth,
+            height: bounds.height
+        )
+        let slots = WorkspaceTouchBarLayout.slotFrames(
+            in: NSRect(
+                x: 0,
+                y: 0,
+                width: arrangement.contentWidth,
+                height: bounds.height
+            ),
+            slotCount: groupViews.count,
+            spacing: WorkspaceTouchBarLayout.quotaGroupSpacing
+        )
+        for (index, view) in groupViews.enumerated() where index < slots.count {
+            view.frame = slots[index]
+        }
+        let maxOffset = max(arrangement.contentWidth - bounds.width, 0)
+        scrollView.contentView.scroll(
+            to: NSPoint(
+                x: min(max(previousOffset, 0), maxOffset),
+                y: 0
+            )
+        )
     }
 }
 
@@ -1304,36 +1252,31 @@ enum WorkspacePresentationInterruptionPolicy {
 @MainActor
 final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     private enum ItemIdentifier {
+        static let back = NSTouchBarItem.Identifier(
+            "com.toubarreplace.workspace.back"
+        )
         static let content = NSTouchBarItem.Identifier(
             "com.toubarreplace.workspace.content"
         )
     }
 
     private let touchBar = NSTouchBar()
-    private let pathView = WorkspaceTouchBarPathView()
-    private let agentIconRow = AgentIconRowView()
+    private let quotaPlate = QuotaPlateView()
     private let customAppsView = WorkspaceCustomAppsView()
+    private let returnView = WorkspaceReturnItemView()
     private lazy var contentView = WorkspaceTouchBarContentView(
-        pathView: pathView,
-        agentsView: agentIconRow,
+        quotaView: quotaPlate,
         customView: customAppsView
     )
-    private var agents: [AvailableAgent] = []
     private var customApps: [CustomWorkspaceApp] = []
-    private var context: WorkspaceContext?
     private var previousPresentationMode: String?
     private var hadPreviousPresentationMode = false
-    private var agentsEnabled = false
     private var hasAttachedToTouchBarWindow = false
     private var isExplicitlyDismissing = false
     private var detachmentTask: Task<Void, Never>?
     private(set) var isPresented = false
 
-    var onResolvePath: (() -> Void)?
-    var onSelectRecentProject: ((URL) -> Void)?
-    var onBrowseWorkspaceDirectory: (() -> Void)?
-    var onCancelPathPicker: (() -> Void)?
-    var onAgentActivated: ((AvailableAgent) -> Void)?
+    var onOpenProvider: ((QuotaProviderID) -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
     var onPresentationInterrupted: (() -> Void)?
@@ -1342,8 +1285,11 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     override init() {
         super.init()
         touchBar.delegate = self
-        // Single full-width item: switcher + tray (design v2). Dual items
-        // left a black void because principal width stayed capped.
+        // Return lives in the system escape/close slot so it is a real
+        // clickable control. It must NOT also be a default item: two default
+        // items make system-modal placement 1 drop the principal view and
+        // leave a black Function Row (only the left chevron remains).
+        touchBar.escapeKeyReplacementItemIdentifier = ItemIdentifier.back
         touchBar.defaultItemIdentifiers = [ItemIdentifier.content]
         touchBar.principalItemIdentifier = ItemIdentifier.content
         touchBar.customizationAllowedItemIdentifiers = []
@@ -1351,26 +1297,15 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         contentView.onWindowAttachmentChanged = { [weak self] attached in
             self?.handleWindowAttachmentChanged(attached)
         }
-        contentView.onToggleWorkspace = { [weak self] in
+        returnView.onActivate = { [weak self] in
             self?.onToggleWorkspace?()
         }
-
-        pathView.onActivate = { [weak self] in
-            self?.onResolvePath?()
-        }
-        pathView.onSelectRecent = { [weak self] url in
-            self?.onSelectRecentProject?(url)
-        }
-        pathView.onBrowse = { [weak self] in
-            self?.onBrowseWorkspaceDirectory?()
-        }
-        pathView.onCancel = { [weak self] in
-            self?.onCancelPathPicker?()
+        returnView.onWindowAttachmentChanged = { [weak self] attached in
+            self?.handleWindowAttachmentChanged(attached)
         }
 
-        agentIconRow.onAgentActivated = { [weak self] agent in
-            guard let self, self.agentsEnabled else { return }
-            self.onAgentActivated?(agent)
+        quotaPlate.onOpenProvider = { [weak self] provider in
+            self?.onOpenProvider?(provider)
         }
 
         customAppsView.onOpenSettings = { [weak self] in
@@ -1381,7 +1316,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         }
 
         reloadCustomAppsFromPreferences()
-        showIdle(lastPath: WorkspacePreferences.lastPath)
+        showQuota(.empty)
     }
 
     func reloadCustomAppsFromPreferences() {
@@ -1411,7 +1346,8 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         TouchBarPresentationPreferences.setCurrentMode(
             WorkspaceTouchBarLayout.presentationMode
         )
-        TBRHideSystemModalCloseButton()
+        // Do not call TBRHideSystemModalCloseButton here: it hides the first
+        // Function Row NSButton, which is now our escape-replacement return.
     }
 
     func dismiss() {
@@ -1442,147 +1378,54 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         isExplicitlyDismissing = false
     }
 
-    func showIdle(lastPath: URL?) {
-        context = nil
-        agents = []
-        let image = WorkspaceTouchBarStyle.symbol(
-            named: "folder",
-            accessibilityDescription: "项目路径"
-        )
-        if let lastPath {
-            pathView.display(
-                image: image,
-                title: "最近 · \(lastPath.lastPathComponent)",
-                toolTip: lastPath.path,
-                enabled: true
-            )
-        } else {
-            pathView.display(
-                image: image,
-                title: "点击获取当前项目",
-                toolTip: nil,
-                enabled: true
-            )
-        }
-        reloadAgents(enabled: false, placeholder: "选择项目后启动 Agent")
-    }
-
-    func showRecents(_ urls: [URL]) {
-        pathView.displayRecents(urls)
+    func showQuota(_ state: QuotaBoardState) {
+        quotaPlate.display(state)
         contentView.setNeedsRegionLayout()
-    }
-
-    func showResolving() {
-        context = nil
-        agents = []
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "hourglass",
-                accessibilityDescription: "正在获取当前项目路径"
-            ),
-            title: "正在获取当前项目路径…",
-            toolTip: nil,
-            enabled: false
-        )
-        reloadAgents(enabled: false, placeholder: "正在读取项目…")
-    }
-
-    func showReady(context: WorkspaceContext, agents: [AvailableAgent]) {
-        self.context = context
-        self.agents = agents
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "folder",
-                accessibilityDescription: "当前项目路径"
-            ),
-            title: context.compactTitle,
-            toolTip: context.directoryURL.path,
-            enabled: true
-        )
-        reloadAgents(
-            enabled: true,
-            placeholder: agents.isEmpty ? "未发现可用 Agent" : nil
-        )
-    }
-
-    func showLaunching(agent: AvailableAgent, context: WorkspaceContext) {
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "hourglass",
-                accessibilityDescription: "正在启动 Agent"
-            ),
-            title: "\(context.directoryURL.lastPathComponent) · 正在打开 \(agent.displayName)…",
-            toolTip: context.directoryURL.path,
-            enabled: false
-        )
-        agentsEnabled = false
-        agentIconRow.setEnabled(false)
-    }
-
-    func showFailure(
-        _ message: String,
-        context: WorkspaceContext?,
-        agents: [AvailableAgent]
-    ) {
-        self.context = context
-        self.agents = context == nil ? [] : agents
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: WorkspaceTouchBarStyle.failureSymbolName,
-                accessibilityDescription: "Workspace 操作失败"
-            ),
-            title: message,
-            toolTip: context?.directoryURL.path,
-            enabled: true
-        )
-        let placeholder: String?
-        if context == nil {
-            placeholder = "请重新选择项目"
-        } else if self.agents.isEmpty {
-            placeholder = "未发现可用 Agent"
-        } else {
-            placeholder = nil
-        }
-        reloadAgents(enabled: context != nil, placeholder: placeholder)
     }
 
     func touchBar(
         _ touchBar: NSTouchBar,
         makeItemForIdentifier identifier: NSTouchBarItem.Identifier
     ) -> NSTouchBarItem? {
-        guard identifier == ItemIdentifier.content else { return nil }
-        let item = NSCustomTouchBarItem(identifier: identifier)
-        item.customizationLabel = "Workspace"
-        // Height stays at Touch Bar chrome (30pt) — settings height only drives
-        // the mirror window. Mixing ~35pt with the host caused AL conflicts.
-        contentView.heightAnchor.constraint(
-            equalToConstant: WorkspaceTouchBarStyle.controlHeight
-        ).isActive = true
-        // Width tracks Settings mirror points, capped to maximumContentWidth
-        // (1010). Asking for the full mirror point size (~1150) overflows the
-        // Function Row and clips the trailing custom slot.
-        let preferredWidthValue = WorkspaceTouchBarLayout.preferredContentWidth()
-        let minWidth = contentView.widthAnchor.constraint(
-            greaterThanOrEqualToConstant:
-                WorkspaceTouchBarLayout.minimumContentWidth
-        )
-        minWidth.priority = .defaultHigh
-        minWidth.isActive = true
-        let preferredWidth = contentView.widthAnchor.constraint(
-            equalToConstant: preferredWidthValue
-        )
-        preferredWidth.priority = .defaultHigh
-        preferredWidth.isActive = true
-        item.view = contentView
-        return item
-    }
-
-    private func reloadAgents(enabled: Bool, placeholder: String? = nil) {
-        agentIconRow.display(agents: agents)
-        agentsEnabled = enabled && !agents.isEmpty
-        agentIconRow.setEnabled(agentsEnabled)
-        contentView.showAgentsPlaceholder(placeholder)
-        contentView.setNeedsRegionLayout()
+        switch identifier {
+        case ItemIdentifier.back:
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            item.customizationLabel = "返回镜像"
+            item.view = returnView
+            return item
+        case ItemIdentifier.content:
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            item.customizationLabel = "Workspace"
+            contentView.heightAnchor.constraint(
+                equalToConstant: WorkspaceTouchBarStyle.controlHeight
+            ).isActive = true
+            // Escape-slot return is a separate item; this view is tray-only.
+            // Cap at tray width so the trailing settings slot is not clipped
+            // by Function Row chrome (full 1010 still includes the back item).
+            let preferredWidthValue = WorkspaceTouchBarLayout.preferredTrayWidth()
+            let minWidth = contentView.widthAnchor.constraint(
+                greaterThanOrEqualToConstant: min(
+                    WorkspaceTouchBarLayout.minimumContentWidth,
+                    preferredWidthValue
+                )
+            )
+            minWidth.priority = .defaultHigh
+            minWidth.isActive = true
+            let preferredWidth = contentView.widthAnchor.constraint(
+                equalToConstant: preferredWidthValue
+            )
+            preferredWidth.priority = .defaultLow
+            preferredWidth.isActive = true
+            let maxWidth = contentView.widthAnchor.constraint(
+                lessThanOrEqualToConstant: preferredWidthValue
+            )
+            maxWidth.priority = .required
+            maxWidth.isActive = true
+            item.view = contentView
+            return item
+        default:
+            return nil
+        }
     }
 
     private func handleWindowAttachmentChanged(_ attached: Bool) {

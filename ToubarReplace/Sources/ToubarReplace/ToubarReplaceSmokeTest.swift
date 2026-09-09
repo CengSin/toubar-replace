@@ -133,8 +133,8 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            CustomWorkspaceAppList.maxCount == 3,
-            "Workspace custom apps must cap at three favorites",
+            CustomWorkspaceAppList.maxCount == 5,
+            "Workspace custom apps must cap at five favorites",
             failures: &failures
         )
         let pinSeed = [
@@ -153,12 +153,22 @@ enum ToubarReplaceSmokeTest {
                 applicationPath: "/Applications/Three.app",
                 displayName: "Three"
             ),
-        ]
-        let fullAdd = CustomWorkspaceAppList.adding(
             CustomWorkspaceApp(
                 bundleIdentifier: "a.four",
                 applicationPath: "/Applications/Four.app",
                 displayName: "Four"
+            ),
+            CustomWorkspaceApp(
+                bundleIdentifier: "a.five",
+                applicationPath: "/Applications/Five.app",
+                displayName: "Five"
+            ),
+        ]
+        let fullAdd = CustomWorkspaceAppList.adding(
+            CustomWorkspaceApp(
+                bundleIdentifier: "a.six",
+                applicationPath: "/Applications/Six.app",
+                displayName: "Six"
             ),
             to: pinSeed
         )
@@ -170,14 +180,15 @@ enum ToubarReplaceSmokeTest {
         let replaceMid = CustomWorkspaceAppList.replacing(
             at: 1,
             with: CustomWorkspaceApp(
-                bundleIdentifier: "a.four",
-                applicationPath: "/Applications/Four.app",
-                displayName: "Four"
+                bundleIdentifier: "a.six",
+                applicationPath: "/Applications/Six.app",
+                displayName: "Six"
             ),
             in: pinSeed
         )
         expect(
-            replaceMid?.map(\.bundleIdentifier) == ["a.one", "a.four", "a.three"],
+            replaceMid?.map(\.bundleIdentifier)
+                == ["a.one", "a.six", "a.three", "a.four", "a.five"],
             "custom app replace must update the chosen slot only",
             failures: &failures
         )
@@ -191,13 +202,14 @@ enum ToubarReplaceSmokeTest {
         )
         expect(
             refreshExisting?.map(\.bundleIdentifier)
-                == ["a.one", "a.two", "a.three"],
+                == ["a.one", "a.two", "a.three", "a.four", "a.five"],
             "re-adding an existing custom app must refresh in place",
             failures: &failures
         )
         let removed = CustomWorkspaceAppList.removing(at: 0, from: pinSeed)
         expect(
-            removed?.map(\.bundleIdentifier) == ["a.two", "a.three"],
+            removed?.map(\.bundleIdentifier)
+                == ["a.two", "a.three", "a.four", "a.five"],
             "custom app remove must drop the chosen slot",
             failures: &failures
         )
@@ -242,32 +254,30 @@ enum ToubarReplaceSmokeTest {
         }
         expect(
             WorkspaceTouchBarLayout.totalUnits == 10
-                && WorkspaceTouchBarLayout.pathUnits == 4
-                && WorkspaceTouchBarLayout.agentsUnits == 3
-                && WorkspaceTouchBarLayout.customUnits == 3
-                && abs(WorkspaceTouchBarLayout.pathRegionScale - 1.0) < 0.001
-                && WorkspaceTouchBarLayout.minimumAgentsCustomWidth == 280
+                && WorkspaceTouchBarLayout.quotaUnits == 4
+                && WorkspaceTouchBarLayout.appsUnits == 6
                 && WorkspaceTouchBarLayout.minimumContentWidth == 400
                 && WorkspaceTouchBarLayout.designReferenceBarWidth == 1_010
                 && WorkspaceTouchBarLayout.maximumContentWidth == 1_010
                 && WorkspaceTouchBarLayout.switcherWidth == 44
                 && WorkspaceTouchBarLayout.zoneContentInset == 6
                 && WorkspaceTouchBarLayout.slotVerticalInset == 3
+                && WorkspaceTouchBarLayout.trayTrailingSafeInset == 12
+                && WorkspaceTouchBarLayout.quotaGroupMinimumWidth == 144
+                && WorkspaceTouchBarLayout.quotaGroupSpacing == 4
                 && WorkspaceTouchBarStyle.controlHeight == 30
                 && WorkspaceTouchBarStyle.cornerRadius == 7
                 && WorkspaceTouchBarStyle.trayCornerRadius == 8
                 && WorkspaceTouchBarStyle.agentIconSize == 22
                 && WorkspaceTouchBarStyle.itemSpacing == 6
                 && WorkspaceTouchBarStyle.canvasInset == 4,
-            "Workspace design-v2 10-unit geometry must stay stable",
+            "Workspace quota 4|6 geometry must stay stable",
             failures: &failures
         )
         let settingsPreferred = WorkspaceTouchBarLayout.preferredContentSize(
             mirrorPixelSize: TouchBarPreferences.defaultMirrorPixelSize,
             backingScaleFactor: 2
         )
-        // Mirror default 2300×70 @2x → 1150×35 points, but item width is capped
-        // to maximumContentWidth (1010) so trailing custom slots are not clipped.
         expect(
             abs(
                 settingsPreferred.width
@@ -305,20 +315,16 @@ enum ToubarReplaceSmokeTest {
         )
         let stripUsable = strip.tray.width
             - WorkspaceTouchBarLayout.trayTrailingSafeInset
-        let expectedPathWidth = floor(
-            floor(
-                stripUsable * CGFloat(WorkspaceTouchBarLayout.pathUnits)
-                    / CGFloat(WorkspaceTouchBarLayout.totalUnits)
-            ) * WorkspaceTouchBarLayout.pathRegionScale
+        let expectedQuotaWidth = floor(
+            stripUsable * CGFloat(WorkspaceTouchBarLayout.quotaUnits)
+                / CGFloat(WorkspaceTouchBarLayout.totalUnits)
         )
         expect(
             abs(strip.switcher.width - WorkspaceTouchBarLayout.switcherWidth) < 1
                 && strip.tray.minX > strip.switcher.maxX
-                && abs(strip.path.width - expectedPathWidth) < 1
-                && abs(strip.agents.width - strip.custom.width) <= 1
+                && abs(strip.quota.width - expectedQuotaWidth) < 1
                 && abs(
-                    strip.path.width + strip.agents.width + strip.custom.width
-                        - stripUsable
+                    strip.quota.width + strip.apps.width - stripUsable
                 ) < 1
                 && abs(
                     strip.switcher.width + WorkspaceTouchBarLayout.switcherContentGap
@@ -326,153 +332,48 @@ enum ToubarReplaceSmokeTest {
                         + WorkspaceTouchBarStyle.canvasInset * 2
                         - WorkspaceTouchBarLayout.designReferenceBarWidth
                 ) < 2,
-            "full bar strip: switcher outside; path 4/10 base; agents|custom share rest",
+            "full bar strip: switcher outside; quota 4/10; apps 6/10",
             failures: &failures
-        )
-        // Short path preferred width must not shrink the base 4/10 zone.
-        let fixedGridStrip = WorkspaceTouchBarLayout.stripFrames(
-            in: NSRect(
-                x: 0,
-                y: 0,
-                width: WorkspaceTouchBarLayout.designReferenceBarWidth,
-                height: 30
-            ),
-            pathPreferredWidth: 160
         )
         expect(
-            abs(fixedGridStrip.path.width - strip.path.width) < 1
-                && abs(fixedGridStrip.agents.width - strip.agents.width) < 1
-                && abs(fixedGridStrip.custom.width - strip.custom.width) < 1,
-            "short path preferred must not shrink the base 4/10 zone",
-            failures: &failures
-        )
-        // Long folder name: path zone grows so the plate (and title) can fit.
-        let longNamePreferred: CGFloat = 460
-        let expandedStrip = WorkspaceTouchBarLayout.stripFrames(
-            in: NSRect(
-                x: 0,
-                y: 0,
-                width: WorkspaceTouchBarLayout.designReferenceBarWidth,
-                height: 30
-            ),
-            pathPreferredWidth: longNamePreferred
-        )
-        let expandedUsable = expandedStrip.tray.width
-            - WorkspaceTouchBarLayout.trayTrailingSafeInset
-        let expectedExpandedPath = min(
-            floor(
-                longNamePreferred
-                    + WorkspaceTouchBarLayout.zoneContentInset * 2
-            ),
-            floor(
-                expandedUsable
-                    - WorkspaceTouchBarLayout.minimumAgentsCustomWidth
-            ),
-            expandedUsable
-        )
-        expect(
-            expandedStrip.path.width > strip.path.width + 1
-                && abs(expandedStrip.path.width - expectedExpandedPath) < 1
-                && abs(
-                    expandedStrip.agents.width - expandedStrip.custom.width
-                ) <= 1
-                && expandedStrip.agents.width
-                    + expandedStrip.custom.width
-                    + 0.5
-                    >= WorkspaceTouchBarLayout.minimumAgentsCustomWidth,
-            "long path preferred must grow path zone and keep agents|custom floor",
-            failures: &failures
-        )
-        let pathPillProbe = WorkspaceTouchBarPathView(
-            frame: NSRect(x: 0, y: 0, width: 240, height: 30)
-        )
-        pathPillProbe.display(
-            image: nil,
-            title: "VeryLongWorkspaceFolderNameForDisplay",
-            toolTip: nil,
-            enabled: true
-        )
-        let measuredPill = pathPillProbe.preferredPillWidth
-        expect(
-            measuredPill > 200,
-            "path preferredPillWidth must track long folder title width",
-            failures: &failures
-        )
-        let pathControl = WorkspaceTouchBarPathView(
-            frame: NSRect(x: 0, y: 0, width: 240, height: 30)
-        )
-        var pathControlActivated = false
-        pathControl.onActivate = {
-            pathControlActivated = true
-        }
-        pathControl.display(
-            image: nil,
-            title: "选择项目",
-            toolTip: nil,
-            enabled: true
-        )
-        pathControl.layoutSubtreeIfNeeded()
-        pathControl.subviews.compactMap { $0 as? NSButton }
-            .first?.performClick(nil)
-        expect(
-            pathControlActivated,
-            "Workspace path region must expose a real button action",
-            failures: &failures
-        )
-        for agentID in AgentID.allCases {
-            let defaultIcon = WorkspaceTouchBarStyle.agentDefaultIcon(for: agentID)
-            expect(
-                defaultIcon != nil,
-                "Agent \(agentID.rawValue) must ship a bundled default icon",
-                failures: &failures
-            )
-            let agentWithoutAppIcon = AvailableAgent(
-                id: agentID,
-                displayName: agentID.rawValue,
-                iconApplicationURL: nil,
-                launchStrategy: .process(
-                    executableURL: URL(fileURLWithPath: "/usr/bin/true"),
-                    leadingArguments: []
+            abs(
+                WorkspaceTouchBarLayout.preferredTrayWidth(
+                    mirrorPixelSize: TouchBarPreferences.defaultMirrorPixelSize,
+                    backingScaleFactor: 2
                 )
-            )
-            let resolved = WorkspaceTouchBarStyle.agentIcon(for: agentWithoutAppIcon)
-            expect(
-                resolved != nil && resolved?.isTemplate == false,
-                "Agent \(agentID.rawValue) without app icon must resolve a non-template default",
-                failures: &failures
-            )
-        }
-        let sampleAgent = AvailableAgent(
-            id: .codex,
-            displayName: "Codex",
-            iconApplicationURL: nil,
-            launchStrategy: .process(
-                executableURL: URL(fileURLWithPath: "/usr/bin/true"),
-                leadingArguments: []
-            )
-        )
-        let agentRow = AgentIconRowView(
-            frame: NSRect(x: 0, y: 0, width: 200, height: 30)
-        )
-        var agentActivatedName: String?
-        agentRow.onAgentActivated = { agent in
-            agentActivatedName = agent.displayName
-        }
-        agentRow.display(agents: [sampleAgent])
-        agentRow.setEnabled(true)
-        agentRow.layoutSubtreeIfNeeded()
-        let agentButtons = agentRow.subviews.compactMap {
-            $0 as? WorkspaceChromeButton
-        }
-        expect(
-            agentButtons.count == 1,
-            "Workspace agent region must use WorkspaceChromeButton slots",
+                    - (
+                        WorkspaceTouchBarLayout.maximumContentWidth
+                            - WorkspaceTouchBarLayout.switcherWidth
+                            - WorkspaceTouchBarLayout.switcherContentGap
+                    )
+            ) < 0.5,
+            "physical tray width must exclude the escape-slot return control",
             failures: &failures
         )
-        agentButtons.first?.performClick(nil)
+        let workspaceItemProbe = WorkspaceTouchBarContentView(
+            quotaView: NSView(),
+            customView: NSView()
+        )
         expect(
-            agentActivatedName == "Codex",
-            "Workspace agent region must expose a real button action",
+            abs(
+                workspaceItemProbe.intrinsicContentSize.width
+                    - WorkspaceTouchBarLayout.preferredTrayWidth()
+            ) < 0.5
+                && workspaceItemProbe.intrinsicContentSize.width
+                    >= WorkspaceTouchBarLayout.minimumContentWidth
+                        - WorkspaceTouchBarLayout.switcherWidth
+                        - WorkspaceTouchBarLayout.switcherContentGap
+                && abs(
+                    workspaceItemProbe.intrinsicContentSize.height
+                        - WorkspaceTouchBarStyle.controlHeight
+                ) < 0.5,
+            "Workspace tray item must size to remaining width after the escape-slot return",
+            failures: &failures
+        )
+        expect(
+            WorkspaceReturnItemView().fittingSize.width
+                <= WorkspaceTouchBarLayout.switcherWidth + 1,
+            "physical Workspace return must stay a compact escape-replacement control",
             failures: &failures
         )
         let chromeProbe = WorkspaceChromeButton(
@@ -501,11 +402,9 @@ enum ToubarReplaceSmokeTest {
         let fullStrip = WorkspaceTouchBarLayout.stripFrames(in: barBounds)
         let usableTray = fullStrip.tray.width
             - WorkspaceTouchBarLayout.trayTrailingSafeInset
-        let expectedFullPath = floor(
-            floor(
-                usableTray * CGFloat(WorkspaceTouchBarLayout.pathUnits)
-                    / CGFloat(WorkspaceTouchBarLayout.totalUnits)
-            ) * WorkspaceTouchBarLayout.pathRegionScale
+        let expectedFullQuota = floor(
+            usableTray * CGFloat(WorkspaceTouchBarLayout.quotaUnits)
+                / CGFloat(WorkspaceTouchBarLayout.totalUnits)
         )
         expect(
             fullStrip.tray.maxX <= barWidth - WorkspaceTouchBarStyle.canvasInset + 0.5
@@ -515,98 +414,507 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            fullStrip.path.maxX <= fullStrip.agents.minX + 0.5
-                && fullStrip.agents.maxX <= fullStrip.custom.minX + 0.5,
-            "Workspace path|agents|custom regions must be separate and ordered",
+            fullStrip.quota.maxX <= fullStrip.apps.minX + 0.5,
+            "Workspace quota|apps regions must be separate and ordered",
             failures: &failures
         )
         expect(
-            abs(fullStrip.path.width - expectedFullPath) < 1,
-            "path region base must be 4/10 of usable tray × pathRegionScale",
-            failures: &failures
-        )
-        expect(
-            {
-                let tray = NSRect(x: 0, y: 0, width: 800, height: 30)
-                let idle = WorkspaceTouchBarLayout.trayZoneFrames(tray: tray)
-                let picking = WorkspaceTouchBarLayout.trayZoneFrames(
-                    tray: tray,
-                    pathPreferredWidth: 0
-                )
-                return abs(picking.path.width - idle.path.width) < 0.5
-                    && picking.agents.width > 100
-                    && picking.custom.width > 100
-                    && WorkspaceTouchBarLayout.recentsCancelButtonWidth >= 24
-            }(),
-            "最近项目选择态必须留在目录区，不能吃掉 Agent/自定义",
-            failures: &failures
-        )
-        expect(
-            WorkspaceTouchBarLayout.recentsPillWidth(forTitle: "App")
-                >= WorkspaceTouchBarLayout.minimumRecentsPillWidth
-                && WorkspaceTouchBarLayout.recentsPillWidth(
-                    forTitle: "ToubarReplace"
-                )
-                    > WorkspaceTouchBarLayout.recentsPillWidth(forTitle: "App"),
-            "最近项目胶囊应按标题变宽，且有最小宽度",
-            failures: &failures
-        )
-        expect(
-            abs(fullStrip.agents.width - fullStrip.custom.width) <= 1,
-            "agents and custom must share the remainder equally",
+            abs(fullStrip.quota.width - expectedFullQuota) < 1,
+            "quota region must be 4/10 of usable tray",
             failures: &failures
         )
         expect(
             abs(
-                fullStrip.path.width
-                    + fullStrip.agents.width
-                    + fullStrip.custom.width
-                    - usableTray
+                fullStrip.quota.width + fullStrip.apps.width - usableTray
             ) < 1,
-            "three zones must cover the usable tray width",
+            "two zones must cover the usable tray width",
             failures: &failures
         )
         expect(
-            WorkspaceTouchBarLayout.agentSlotCount(agentCount: 4) == 4
-                && WorkspaceTouchBarLayout.customSlotCount(appCount: 2) == 3
-                && WorkspaceTouchBarLayout.customSlotCount(appCount: 0) == 1,
-            "slot counts: agents by count; custom apps+settings or empty label",
+            WorkspaceTouchBarLayout.customSlotCount(appCount: 2) == 3
+                && WorkspaceTouchBarLayout.customSlotCount(appCount: 0) == 1
+                && WorkspaceTouchBarLayout.customSlotCount(appCount: 5) == 6,
+            "slot counts: apps+settings or empty label",
             failures: &failures
         )
-        let agentsInner = WorkspaceTouchBarLayout.zoneContentRect(
-            fullStrip.agents
+        let quotaPlate = QuotaPlateView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 30)
         )
-        let agentSlot = WorkspaceTouchBarLayout.equalSlotWidth(
-            regionWidth: agentsInner.width,
-            slotCount: 4
+        var openedProvider: QuotaProviderID?
+        quotaPlate.onOpenProvider = { openedProvider = $0 }
+        quotaPlate.display(.empty)
+        quotaPlate.layoutSubtreeIfNeeded()
+        expect(
+            quotaPlate.groupViews.isEmpty && openedProvider == nil,
+            "empty quota plate must not open a provider",
+            failures: &failures
         )
-        let customInner = WorkspaceTouchBarLayout.zoneContentRect(
-            fullStrip.custom
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let grokBuild = QuotaPool(
+            provider: .grokBuild,
+            windows: [
+                QuotaWindow(
+                    kind: .fiveHour,
+                    remaining: 41,
+                    limit: 100,
+                    resetAt: now.addingTimeInterval(3 * 3600 + 21 * 60),
+                    cycle: 5 * 3600
+                ),
+                QuotaWindow(
+                    kind: .weekly,
+                    remaining: 78,
+                    limit: 100,
+                    resetAt: now.addingTimeInterval(4 * 86400),
+                    cycle: 7 * 86400
+                ),
+            ],
+            fetchedAt: now
         )
-        let customSlot = WorkspaceTouchBarLayout.equalSlotWidth(
-            regionWidth: customInner.width,
-            slotCount: 3
+        let grokBots = QuotaPool(
+            provider: .grokBots,
+            windows: [
+                QuotaWindow(
+                    kind: .fiveHour,
+                    remaining: 20,
+                    limit: 100,
+                    resetAt: now.addingTimeInterval(24 * 3600),
+                    cycle: 5 * 3600
+                )
+            ],
+            fetchedAt: now
+        )
+        let codex = QuotaPool(
+            provider: .codex,
+            windows: [
+                QuotaWindow(
+                    kind: .weekly,
+                    remaining: 80,
+                    limit: 100,
+                    resetAt: now.addingTimeInterval(72 * 3600),
+                    cycle: 7 * 86400
+                )
+            ],
+            fetchedAt: now
+        )
+        let decision = QuotaRecommendationEngine.recommend(
+            pools: [codex, grokBuild, grokBots],
+            now: now
         )
         expect(
-            agentSlot > 0 && customSlot > 0,
-            "equal slots inside agents/custom must be positive",
+            decision?.provider == .grokBuild
+                && decision?.highlightedKind == .fiveHour,
+            "soon-reset leftover quota must outrank fuller weekly allotments",
             failures: &failures
         )
-        let slots = WorkspaceTouchBarLayout.slotFrames(
-            in: agentsInner,
-            slotCount: 4
+        let botsRisk = QuotaRecommendationEngine.wasteRisk(
+            window: grokBots.windows[0],
+            now: now
         )
-        let tiledWidth = slots.reduce(CGFloat(0)) { partial, slot in
-            partial + slot.width
-        } + WorkspaceTouchBarStyle.itemSpacing * 3
+        let codexRisk = QuotaRecommendationEngine.wasteRisk(
+            window: codex.windows[0],
+            now: now
+        )
         expect(
-            slots.count == 4
-                && abs(slots[0].width - agentSlot) < 1
-                && abs(tiledWidth - agentsInner.width) < 4
-                && slots[0].minX == agentsInner.minX,
-            "agent slots must equal-split the inset agents zone",
+            botsRisk > codexRisk,
+            "a nearer empty-ish window must outrank a distant fuller weekly window",
             failures: &failures
         )
+        let emptyDecision = QuotaRecommendationEngine.recommend(
+            pools: [
+                QuotaPool(
+                    provider: .codex,
+                    windows: [
+                        QuotaWindow(
+                            kind: .weekly,
+                            remaining: 0,
+                            limit: 100,
+                            resetAt: now.addingTimeInterval(3600),
+                            cycle: 7 * 86400
+                        )
+                    ],
+                    fetchedAt: now
+                )
+            ],
+            now: now
+        )
+        expect(
+            emptyDecision == nil,
+            "exhausted pools must not be recommended",
+            failures: &failures
+        )
+        let boardState = QuotaBoardState.from(
+            pools: [codex, grokBuild, grokBots],
+            now: now,
+            hiddenProviderIDs: []
+        )
+        expect(
+            boardState.groups.count == 3
+                && boardState.recommendedProvider == .grokBuild
+                && boardState.groups.contains(where: {
+                    $0.provider == .grokBuild
+                        && $0.isRecommended
+                        && $0.fiveHour.isHighlighted
+                        && $0.fiveHour.valueText == "41%"
+                        && $0.reset.valueText.contains("h")
+                })
+                && boardState.groups.contains(where: {
+                    $0.provider == .codex && $0.weekly.valueText == "80%"
+                }),
+            "quota board must show every pool as three bars and mark the recommended 5h",
+            failures: &failures
+        )
+        let hiddenCodex = QuotaBoardState.from(
+            pools: [codex, grokBuild, grokBots],
+            now: now,
+            hiddenProviderIDs: [QuotaProviderID.codex.rawValue]
+        )
+        expect(
+            hiddenCodex.groups.count == 2
+                && hiddenCodex.groups.contains(where: {
+                    $0.provider == .grokBuild
+                })
+                && hiddenCodex.groups.contains(where: {
+                    $0.provider == .grokBots
+                })
+                && !hiddenCodex.groups.contains(where: {
+                    $0.provider == .codex
+                }),
+            "hidden quota providers must not appear on the board",
+            failures: &failures
+        )
+        let twoGroupFit = WorkspaceTouchBarLayout.quotaScrollArrangement(
+            plateWidth: 360,
+            groupCount: 2
+        )
+        expect(
+            twoGroupFit.needsScroll == false
+                && abs(twoGroupFit.contentWidth - 360) < 0.5
+                && twoGroupFit.groupWidth
+                    >= WorkspaceTouchBarLayout.quotaGroupMinimumWidth,
+            "two three-bar groups that fit must fill the plate without scrolling",
+            failures: &failures
+        )
+        let threeGroupScroll = WorkspaceTouchBarLayout.quotaScrollArrangement(
+            plateWidth: 360,
+            groupCount: 3
+        )
+        expect(
+            threeGroupScroll.needsScroll
+                && threeGroupScroll.contentWidth > 360
+                && abs(
+                    threeGroupScroll.groupWidth
+                        - WorkspaceTouchBarLayout.quotaGroupMinimumWidth
+                ) < 0.5,
+            "three three-bar groups must keep a readable width and scroll in the 4/10 plate",
+            failures: &failures
+        )
+        quotaPlate.display(boardState)
+        quotaPlate.layoutSubtreeIfNeeded()
+        expect(
+            quotaPlate.groupViews.count == 3
+                && quotaPlate.needsHorizontalScroll
+                && quotaPlate.contentWidth > quotaPlate.bounds.width
+                && quotaPlate.groupViews.allSatisfy {
+                    abs(
+                        $0.frame.width
+                            - WorkspaceTouchBarLayout.quotaGroupMinimumWidth
+                    ) < 1
+                        && $0.frame.maxX <= quotaPlate.contentWidth + 0.5
+                }
+                && (quotaPlate.groupViews.last?.frame.maxX ?? 0)
+                    > quotaPlate.bounds.width,
+            "quota plate must keep equal three-bar groups and scroll overflow",
+            failures: &failures
+        )
+        openedProvider = nil
+        quotaPlate.groupViews.first { $0.state?.provider == .grokBuild }?
+            .onActivate?(.grokBuild)
+        expect(
+            openedProvider == .grokBuild,
+            "tapping a quota group must open that provider",
+            failures: &failures
+        )
+        let appsZone = WorkspaceTouchBarLayout.zoneContentRect(
+            WorkspaceTouchBarLayout.stripFrames(
+                in: NSRect(
+                    x: 0,
+                    y: 0,
+                    width: WorkspaceTouchBarLayout.designReferenceBarWidth,
+                    height: 30
+                )
+            ).apps
+        )
+        let appsView = WorkspaceCustomAppsView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: appsZone.width,
+                height: 30
+            )
+        )
+        appsView.display(
+            apps: [
+                CustomWorkspaceApp(
+                    bundleIdentifier: "com.apple.finder",
+                    applicationPath: "/System/Library/CoreServices/Finder.app",
+                    displayName: "Finder"
+                ),
+                CustomWorkspaceApp(
+                    bundleIdentifier: "com.apple.Safari",
+                    applicationPath: "/Applications/Safari.app",
+                    displayName: "Safari"
+                ),
+                CustomWorkspaceApp(
+                    bundleIdentifier: "com.apple.TextEdit",
+                    applicationPath: "/System/Applications/TextEdit.app",
+                    displayName: "TextEdit"
+                ),
+            ]
+        )
+        appsView.layoutSubtreeIfNeeded()
+        let settingsFrame = appsView.settingsButtonFrame
+        expect(
+            settingsFrame.width > 20
+                && settingsFrame.maxX <= appsView.bounds.maxX + 0.5
+                && settingsFrame.minX >= appsView.bounds.minX - 0.5,
+            "settings gear must sit fully inside the apps zone",
+            failures: &failures
+        )
+        expect(
+            QuotaDisplayFormatting.percent(0.41) == "41%"
+                && QuotaDisplayFormatting.countdown(3 * 3600 + 21 * 60) == "3h21m"
+                && QuotaDisplayFormatting.countdown(72 * 3600) == "3d0h",
+            "quota display formatting must keep compact countdown text",
+            failures: &failures
+        )
+        expect(
+            WorkspaceTouchBarStyle.providerIcon(for: .codex) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .grokBuild) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .grokBots) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .cursor) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .antigravity) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .openrouter) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .copilot) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .opencode) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .ollama) != nil
+                && WorkspaceTouchBarStyle.providerIcon(for: .devin) != nil
+                && QuotaProviderID.antigravity.iconResourceName
+                    == "antigravity"
+                && QuotaProviderID.openrouter.iconResourceName
+                    == "openrouter"
+                && QuotaProviderID.grokBots.iconResourceName == "grokBots",
+            "quota providers must ship matching brand icons",
+            failures: &failures
+        )
+        expect(
+            QuotaProviderLaunch.matchingCustomApp(
+                provider: .codex,
+                apps: [
+                    CustomWorkspaceApp(
+                        bundleIdentifier: "com.openai.codex",
+                        applicationPath: "/Applications/Codex.app",
+                        displayName: "Codex"
+                    )
+                ]
+            )?.displayName == "Codex",
+            "recommended tap must resolve a matching pinned app",
+            failures: &failures
+        )
+        let openUsageFixture = """
+        {
+          "schema": "openusage.limits.v1",
+          "providers": {
+            "codex": {
+              "fetchedAt": "2026-09-08T13:42:50.000Z",
+              "resources": {
+                "session": {
+                  "kind": "consumption",
+                  "limit": 100,
+                  "remaining": 100,
+                  "resetsAt": "2026-09-08T18:42:48.000Z",
+                  "windowSeconds": 18000
+                },
+                "weekly": {
+                  "kind": "consumption",
+                  "limit": 100,
+                  "remaining": 95,
+                  "resetsAt": "2026-09-15T05:15:54.000Z",
+                  "windowSeconds": 604800
+                },
+                "credits": {
+                  "kind": "balance",
+                  "available": 999
+                }
+              }
+            },
+            "grok": {
+              "fetchedAt": "2026-09-08T13:44:43.559Z",
+              "resources": {
+                "weekly": {
+                  "kind": "consumption",
+                  "limit": 100,
+                  "remaining": 63,
+                  "resetsAt": "2026-09-09T14:01:32.864Z",
+                  "windowSeconds": 604800
+                }
+              }
+            },
+            "cursor": {
+              "fetchedAt": "2026-09-08T13:42:51.000Z",
+              "resources": {
+                "grokBot": {
+                  "kind": "consumption",
+                  "limit": 100,
+                  "remaining": 100,
+                  "windowSeconds": 604800
+                },
+                "totalUsage": {
+                  "kind": "consumption",
+                  "limit": 20,
+                  "remaining": 0
+                },
+                "autoUsage": {
+                  "kind": "consumption",
+                  "unit": "percent",
+                  "limit": 100,
+                  "remaining": 75,
+                  "windowSeconds": 2678400
+                }
+              }
+            },
+            "antigravity": {
+              "displayName": "Antigravity",
+              "fetchedAt": "2026-09-08T13:42:50.000Z",
+              "resources": {
+                "geminiSession": {
+                  "kind": "consumption",
+                  "unit": "percent",
+                  "limit": 100,
+                  "remaining": 80,
+                  "windowSeconds": 18000
+                },
+                "geminiWeekly": {
+                  "kind": "consumption",
+                  "unit": "percent",
+                  "limit": 100,
+                  "remaining": 90,
+                  "windowSeconds": 604800
+                }
+              }
+            },
+            "openrouter": {
+              "displayName": "OpenRouter",
+              "fetchedAt": "2026-09-08T13:42:50.000Z",
+              "resources": {
+                "credits": {
+                  "kind": "consumption",
+                  "unit": "usd",
+                  "limit": 35,
+                  "remaining": 4
+                },
+                "keyLimit": {
+                  "kind": "consumption",
+                  "unit": "usd",
+                  "limit": 0.01,
+                  "remaining": 0.01
+                },
+                "balance": {
+                  "kind": "balance",
+                  "unit": "usd",
+                  "available": 12
+                }
+              }
+            }
+          }
+        }
+        """.data(using: .utf8)!
+        do {
+            let envelope = try OpenUsageLimitsMapper.decodeEnvelope(
+                from: openUsageFixture
+            )
+            let mapped = OpenUsageLimitsMapper.pools(
+                from: envelope,
+                now: OpenUsageDateParser.date(
+                    from: "2026-09-08T13:44:43.000Z"
+                ) ?? Date()
+            )
+            let mappedIDs = mapped.map(\.provider)
+            expect(
+                mappedIDs == [
+                    .grokBuild, .grokBots, .codex, .cursor, .antigravity,
+                    .openrouter,
+                ],
+                "OpenUsage mapper must emit every consumption provider, not only the first three",
+                failures: &failures
+            )
+            let mappedCodex = mapped.first { $0.provider == .codex }
+            let mappedGrok = mapped.first { $0.provider == .grokBuild }
+            let mappedBots = mapped.first { $0.provider == .grokBots }
+            expect(
+                mappedCodex?.windows.contains(where: {
+                    $0.kind == .fiveHour && abs($0.remainingRatio - 1) < 0.001
+                }) == true
+                    && mappedCodex?.windows.contains(where: {
+                        $0.kind == .weekly && abs($0.remainingRatio - 0.95) < 0.001
+                    }) == true,
+                "OpenUsage Codex session maps to 5h and weekly remaining",
+                failures: &failures
+            )
+            expect(
+                mappedGrok?.windows.contains(where: {
+                    $0.kind == .weekly && abs($0.remainingRatio - 0.63) < 0.001
+                }) == true
+                    && mappedGrok?.windows.contains(where: {
+                        $0.kind == .fiveHour
+                    }) != true,
+                "OpenUsage Grok SuperGrok maps to Grok Build weekly only",
+                failures: &failures
+            )
+            expect(
+                mappedBots?.windows.contains(where: {
+                    $0.kind == .weekly && abs($0.remainingRatio - 1) < 0.001
+                }) == true,
+                "OpenUsage Cursor grokBot maps to Grok Bots weekly",
+                failures: &failures
+            )
+            let mappedCursor = mapped.first { $0.provider == .cursor }
+            let mappedAntigravity = mapped.first { $0.provider == .antigravity }
+            let mappedOpenRouter = mapped.first { $0.provider == .openrouter }
+            expect(
+                mappedCursor?.title == "Cursor"
+                    && mappedCursor?.windows.contains(where: {
+                        $0.kind == .weekly && abs($0.remainingRatio - 0.75) < 0.001
+                    }) == true,
+                "Cursor keeps its own usage pool besides Grok Bots",
+                failures: &failures
+            )
+            expect(
+                mappedAntigravity?.title == "Antigravity"
+                    && mappedAntigravity?.windows.contains(where: {
+                        $0.kind == .fiveHour && abs($0.remainingRatio - 0.8) < 0.001
+                    }) == true
+                    && mappedAntigravity?.windows.contains(where: {
+                        $0.kind == .weekly && abs($0.remainingRatio - 0.9) < 0.001
+                    }) == true,
+                "Antigravity session and weekly must both appear",
+                failures: &failures
+            )
+            expect(
+                mappedOpenRouter?.title == "OpenRouter"
+                    && mappedOpenRouter?.windows.contains(where: {
+                        $0.kind == .weekly && abs($0.remainingRatio - (4.0 / 35.0)) < 0.001
+                    }) == true
+                    && mappedOpenRouter?.windows.contains(where: {
+                        abs($0.limit - 0.01) < 0.0001
+                    }) != true,
+                "OpenRouter credits must show and keyLimit must be ignored",
+                failures: &failures
+            )
+        } catch {
+            failures.append(
+                "OpenUsage fixture JSON failed to decode: \(error)"
+            )
+        }
         expect(
             WorkspaceFloatingSwitcherView.Gesture.shouldToggle(
                 duration: 0.1,
@@ -627,219 +935,15 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            AgentID.allCases == [.codex, .claudeCode, .cursor, .grokBuild],
-            "default Agent ordering changed unexpectedly",
-            failures: &failures
-        )
-        expect(
-            FrontmostAppContext(
-                bundleIdentifier: FrontmostAppContext.finderBundleIdentifier,
-                localizedName: "Finder",
-                processIdentifier: nil,
-                capturedAt: Date()
-            ).isFinder,
-            "Finder context recognition changed unexpectedly",
-            failures: &failures
-        )
-        expect(
-            TerminalAdapterID.allCases == [.otty, .terminal, .ghostty],
-            "supported terminal adapter ordering changed unexpectedly",
+            Array(QuotaProviderID.preferredDisplayOrder.prefix(3))
+                == [.grokBuild, .grokBots, .codex],
+            "known quota providers must keep their leading display order",
             failures: &failures
         )
         expect(
             TouchBarPreferences.settingsWindowAutosaveName
                 == "ToubarReplaceSettingsWindow",
             "settings window resize persistence name changed unexpectedly",
-            failures: &failures
-        )
-        let terminalAdapterRegistry = TerminalAdapterRegistry()
-        let systemTerminalURL = URL(
-            fileURLWithPath: "/System/Applications/Utilities/Terminal.app",
-            isDirectory: true
-        )
-        expect(
-            terminalAdapterRegistry.adapter(for: systemTerminalURL)?.id
-                == .terminal,
-            "user-selected Terminal.app must resolve to its launch adapter",
-            failures: &failures
-        )
-        expect(
-            AgentLaunchCommand.cursorLeadingArguments == ["--new-window"],
-            "Cursor must open the selected project in a new window",
-            failures: &failures
-        )
-        let currentDirectory = URL(
-            fileURLWithPath: FileManager.default.currentDirectoryPath
-        ).standardizedFileURL
-        let agentProcess = AgentProcess.make(
-            executableURL: URL(fileURLWithPath: "/usr/bin/true"),
-            arguments: ["workspace-test"],
-            workingDirectory: currentDirectory,
-            inheritedEnvironment: ["PATH": "/usr/bin"]
-        )
-        expect(
-            agentProcess.currentDirectoryURL?.standardizedFileURL
-                == currentDirectory,
-            "Agent processes must inherit the selected Workspace directory",
-            failures: &failures
-        )
-        expect(
-            agentProcess.arguments == ["workspace-test"],
-            "Agent process configuration must preserve launch arguments",
-            failures: &failures
-        )
-        expect(
-            agentProcess.environment?["PATH"] == "/usr/bin:/usr/bin",
-            "Agent process configuration must preserve executable discovery",
-            failures: &failures
-        )
-        let pwdPipe = Pipe()
-        let pwdProcess = AgentProcess.make(
-            executableURL: URL(fileURLWithPath: "/bin/pwd"),
-            arguments: [],
-            workingDirectory: currentDirectory,
-            inheritedEnvironment: ["PATH": "/usr/bin:/bin"]
-        )
-        pwdProcess.standardOutput = pwdPipe
-        pwdProcess.standardError = FileHandle.nullDevice
-        do {
-            try pwdProcess.run()
-            pwdProcess.waitUntilExit()
-            let output = String(
-                data: pwdPipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines)
-            expect(
-                pwdProcess.terminationStatus == 0
-                    && output == currentDirectory.path,
-                "Agent subprocess did not start in the selected "
-                    + "Workspace directory",
-                failures: &failures
-            )
-        } catch {
-            failures.append(
-                "Agent subprocess working-directory probe failed: \(error)"
-            )
-        }
-        do {
-            try await AgentProcessRunner.run(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "sleep 0.45; exit 7"],
-                workingDirectory: currentDirectory,
-                agentName: "延迟失败测试",
-                completionMode: .waitForTermination
-            )
-            failures.append("等待退出模式不能误判延迟失败为成功")
-        } catch AgentLaunchError.processFailed(_, let status) {
-            expect(
-                status == 7,
-                "必须传播辅助进程的真实退出码",
-                failures: &failures
-            )
-        } catch {
-            failures.append(
-                "辅助进程返回了意外错误：\(error.localizedDescription)"
-            )
-        }
-        let testToolURL = URL(fileURLWithPath: "/tmp/Claude Tool/claude")
-        let testProjectURL = URL(fileURLWithPath: "/tmp/Project Folder")
-        expect(
-            TerminalLaunchCommand.ottyArguments(
-                toolURL: testToolURL,
-                projectDirectory: testProjectURL,
-                isRunning: true
-            ) == [
-                "tab",
-                "new",
-                "--cwd",
-                "/tmp/Project Folder",
-                "--command",
-                "export PATH='/tmp/Claude Tool':$PATH; exec '/tmp/Claude Tool/claude'",
-            ],
-            "Otty must create an Agent tab in the selected project",
-            failures: &failures
-        )
-        expect(
-            TerminalLaunchCommand.ottyArguments(
-                toolURL: testToolURL,
-                projectDirectory: testProjectURL,
-                isRunning: false
-            ) == [
-                "open",
-                "--command",
-                "export PATH='/tmp/Claude Tool':$PATH; exec '/tmp/Claude Tool/claude'",
-                "/tmp/Project Folder",
-            ],
-            "Otty cold launch must not require its control socket",
-            failures: &failures
-        )
-        expect(
-            TerminalLaunchCommand.shellQuote("a'b") == "'a'\\''b'",
-            "terminal shell quoting must escape single quotes",
-            failures: &failures
-        )
-        let terminalArguments = TerminalLaunchCommand
-            .terminalAppleScriptArguments(
-                toolURL: testToolURL,
-                projectDirectory: testProjectURL
-            )
-        expect(
-            terminalArguments.count == 4
-                && terminalArguments[1].contains("terminalWasRunning")
-                && terminalArguments[1].contains(
-                    "do script shellCommand in front window"
-                )
-                && terminalArguments[1].contains(
-                    "make new tab at end of tabs of front window"
-                )
-                && terminalArguments[1].contains(
-                    "do script shellCommand in targetTab"
-                ),
-            "Terminal launch must reuse its cold-start window or add a tab",
-            failures: &failures
-        )
-        let ghosttyArguments = TerminalLaunchCommand
-            .ghosttyAppleScriptArguments(
-                toolURL: testToolURL,
-                projectDirectory: testProjectURL
-            )
-        expect(
-            ghosttyArguments.count == 4
-                && ghosttyArguments[1].contains(
-                    "set initial working directory of cfg to projectPath"
-                )
-                && ghosttyArguments[1].contains(
-                    "set command of cfg to commandText"
-                )
-                && ghosttyArguments[1].contains(
-                    "new tab in front window with configuration cfg"
-                )
-                && ghosttyArguments[1].contains(
-                    "new window with configuration cfg"
-                )
-                && ghosttyArguments[2].contains("/bin/zsh -lc")
-                && ghosttyArguments[3] == "/tmp/Project Folder",
-            "Ghostty launch must create a configured tab or window",
-            failures: &failures
-        )
-        expect(
-            WorkspacePathResolver.existingDirectory(at: currentDirectory)
-                != nil,
-            "Workspace directory validation rejected the current directory",
-            failures: &failures
-        )
-        expect(
-            FinderPathResolver.directoryURL(
-                from: "  \(currentDirectory.path)\n"
-            ) == currentDirectory.standardizedFileURL,
-            "Finder path parsing must trim Apple Event output",
-            failures: &failures
-        )
-        expect(
-            WorkspacePathResolver.existingDirectory(
-                at: currentDirectory.appendingPathComponent("Package.swift")
-            ) == nil,
-            "Workspace directory validation accepted a file",
             failures: &failures
         )
         expect(
@@ -886,6 +990,26 @@ enum ToubarReplaceSmokeTest {
                     isObscuringOtherAppContent: false
                 ) == TouchBarIdleOpacity.active,
             "idle opacity must remain active unless idle content is obscured",
+            failures: &failures
+        )
+        expect(
+            !TouchBarIdleOpacity.allowsIdle(
+                captureRunning: false,
+                scene: .workspace
+            )
+                && !TouchBarIdleOpacity.allowsIdle(
+                    captureRunning: true,
+                    scene: .workspace
+                )
+                && !TouchBarIdleOpacity.allowsIdle(
+                    captureRunning: false,
+                    scene: .mirror
+                )
+                && TouchBarIdleOpacity.allowsIdle(
+                    captureRunning: true,
+                    scene: .mirror
+                ),
+            "idle fade must only run on the live capture mirror",
             failures: &failures
         )
         if let firstImage = makeTestImage(width: 1),
@@ -1157,16 +1281,6 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            WorkspaceStartupScenePolicy.defaultAutoCollapse(
-                startupScene: .workspace
-            ) == false
-                && WorkspaceStartupScenePolicy.defaultAutoCollapse(
-                    startupScene: .mirror
-                ),
-            "启动默认 Workspace 时，自动返回镜像应默认关闭",
-            failures: &failures
-        )
-        expect(
             TouchBarResumePolicy.action(
                 usesSoftwareWorkspace: true,
                 restoreWorkspace: false
@@ -1210,219 +1324,6 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            {
-                let first = WorkspaceRecentProjectList.recording(
-                    URL(fileURLWithPath: "/tmp/alpha", isDirectory: true),
-                    at: Date(timeIntervalSince1970: 1),
-                    in: []
-                )
-                let second = WorkspaceRecentProjectList.recording(
-                    URL(fileURLWithPath: "/tmp/beta", isDirectory: true),
-                    at: Date(timeIntervalSince1970: 2),
-                    in: first
-                )
-                let again = WorkspaceRecentProjectList.recording(
-                    URL(fileURLWithPath: "/tmp/alpha", isDirectory: true),
-                    at: Date(timeIntervalSince1970: 3),
-                    in: second
-                )
-                return again.map(\.path) == ["/tmp/alpha", "/tmp/beta"]
-            }(),
-            "最近项目应去重并置顶",
-            failures: &failures
-        )
-        expect(
-            {
-                var items: [WorkspaceRecentProject] = []
-                for name in ["a", "b", "c", "d", "e", "f"] {
-                    items = WorkspaceRecentProjectList.recording(
-                        URL(fileURLWithPath: "/tmp/\(name)", isDirectory: true),
-                        at: Date(timeIntervalSince1970: Double(name.hashValue)),
-                        in: items
-                    )
-                }
-                return items.count == WorkspaceRecentProjectList.maxCount
-                    && items.first?.path == "/tmp/f"
-            }(),
-            "最近项目最多保留 5 条",
-            failures: &failures
-        )
-        expect(
-            {
-                let stored = WorkspaceRecentProjectList.recording(
-                    URL(fileURLWithPath: "/tmp/kept", isDirectory: true),
-                    at: Date(timeIntervalSince1970: 1),
-                    in: []
-                )
-                let removed = WorkspaceRecentProjectList.removing(
-                    path: "/tmp/kept",
-                    from: stored
-                )
-                return removed.isEmpty
-            }(),
-            "设置里移除最近项目后列表应为空",
-            failures: &failures
-        )
-        expect(
-            {
-                let home = URL(fileURLWithPath: "/Users/demo", isDirectory: true)
-                let project = URL(
-                    fileURLWithPath: "/Users/demo/code/app",
-                    isDirectory: true
-                )
-                let stored = [
-                    WorkspaceRecentProject(
-                        path: home.path,
-                        lastUsedAt: Date(timeIntervalSince1970: 2)
-                    ),
-                    WorkspaceRecentProject(
-                        path: project.path,
-                        lastUsedAt: Date(timeIntervalSince1970: 1)
-                    ),
-                ]
-                let existing: Set<String> = [
-                    home.path,
-                    project.path,
-                    "/Users/demo/other",
-                ]
-                let displayed = WorkspaceRecentProjectList.displayURLs(
-                    stored: stored,
-                    homeDirectory: home,
-                    existingDirectory: { url in
-                        existing.contains(url.standardizedFileURL.path)
-                            ? url.standardizedFileURL
-                            : nil
-                    }
-                )
-                let emptyAfterClear = WorkspaceRecentProjectList.displayURLs(
-                    stored: [],
-                    homeDirectory: home,
-                    existingDirectory: { url in
-                        existing.contains(url.standardizedFileURL.path)
-                            ? url.standardizedFileURL
-                            : nil
-                    }
-                )
-                return displayed.map(\.path) == [project.path]
-                    && emptyAfterClear.isEmpty
-            }(),
-            "最近项目展示只显示本机已存列表，清空后不得再出现内容",
-            failures: &failures
-        )
-        expect(
-            {
-                let finder = FrontmostAppContext(
-                    bundleIdentifier: FrontmostAppContext.finderBundleIdentifier,
-                    localizedName: "Finder",
-                    processIdentifier: 1,
-                    capturedAt: Date(timeIntervalSince1970: 1)
-                )
-                let probe = WorkspacePathProbe(
-                    frontmost: finder,
-                    finderDirectory: URL(
-                        fileURLWithPath: "/Users/demo/FinderProj",
-                        isDirectory: true
-                    ),
-                    ottyDirectory: URL(
-                        fileURLWithPath: "/Users/demo/OttyProj",
-                        isDirectory: true
-                    ),
-                    accessibilityDirectory: URL(
-                        fileURLWithPath: "/Users/demo/AXProj",
-                        isDirectory: true
-                    )
-                )
-                let resolved = WorkspacePathResolutionPolicy.resolve(probe)
-                return resolved?.directoryURL.path == "/Users/demo/FinderProj"
-                    && {
-                        if case .frontmostDocument = resolved?.source {
-                            return true
-                        }
-                        return false
-                    }()
-            }(),
-            "Finder 在前台时路径解析必须优先 Finder",
-            failures: &failures
-        )
-        expect(
-            {
-                let otty = FrontmostAppContext(
-                    bundleIdentifier: FrontmostAppContext.ottyBundleIdentifier,
-                    localizedName: "Otty",
-                    processIdentifier: 2,
-                    capturedAt: Date(timeIntervalSince1970: 1)
-                )
-                let probe = WorkspacePathProbe(
-                    frontmost: otty,
-                    finderDirectory: nil,
-                    ottyDirectory: URL(
-                        fileURLWithPath: "/Users/demo/OttyProj",
-                        isDirectory: true
-                    ),
-                    accessibilityDirectory: URL(
-                        fileURLWithPath: "/Users/demo/AXProj",
-                        isDirectory: true
-                    )
-                )
-                let resolved = WorkspacePathResolutionPolicy.resolve(probe)
-                return resolved?.directoryURL.path == "/Users/demo/OttyProj"
-                    && {
-                        if case .otty = resolved?.source {
-                            return true
-                        }
-                        return false
-                    }()
-            }(),
-            "Otty 在前台且能读到 cwd 时使用 Otty 目录",
-            failures: &failures
-        )
-        expect(
-            {
-                let terminal = FrontmostAppContext(
-                    bundleIdentifier: "com.apple.Terminal",
-                    localizedName: "Terminal",
-                    processIdentifier: 3,
-                    capturedAt: Date(timeIntervalSince1970: 1)
-                )
-                let probe = WorkspacePathProbe(
-                    frontmost: terminal,
-                    finderDirectory: nil,
-                    ottyDirectory: URL(
-                        fileURLWithPath: "/Users/demo/OttyProj",
-                        isDirectory: true
-                    ),
-                    accessibilityDirectory: nil
-                )
-                return WorkspacePathResolutionPolicy.resolve(probe) == nil
-            }(),
-            "只有原生 Terminal 且没有辅助功能路径时，不得假装拿到了目录",
-            failures: &failures
-        )
-        expect(
-            {
-                let json = """
-                {"ok":true,"data":[{"active":false,"cwd":"/tmp/other"},{"active":true,"cwd":"/tmp/focused"}]}
-                """.data(using: .utf8)!
-                return OttyDirectoryParser.focusedDirectory(fromJSON: json)?
-                    .path == "/tmp/focused"
-            }(),
-            "Otty pane list JSON 应解析焦点 pane 的 cwd",
-            failures: &failures
-        )
-        expect(
-            {
-                let json = """
-                {"data":{"entries":[{"path":"/tmp/one"},{"path":"/tmp/two"}]}}
-                """.data(using: .utf8)!
-                return OttyDirectoryParser.recentDirectories(
-                    fromJSON: json,
-                    limit: 1
-                ).map(\.path) == ["/tmp/one"]
-            }(),
-            "Otty jump:ls JSON 应按上限截取最近目录",
-            failures: &failures
-        )
-        expect(
             WorkspaceAsyncSessionPolicy.canUpdate(
                 capturedGeneration: 4,
                 currentGeneration: 4,
@@ -1450,10 +1351,25 @@ enum ToubarReplaceSmokeTest {
                 preferred: .touchBar
             ) == .floating
                 && SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
+                    usesSoftwareWorkspace: true,
+                    preferred: .touchBar,
+                    scene: .workspace
+                ) == .touchBar
+                && SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
                     usesSoftwareWorkspace: false,
                     preferred: .touchBar
-                ) == .touchBar,
-            "software mode forces floating switcher; hardware honors preference",
+                ) == .touchBar
+                && SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
+                    usesSoftwareWorkspace: false,
+                    preferred: .touchBar,
+                    scene: .workspace
+                ) == .touchBar
+                && SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
+                    usesSoftwareWorkspace: false,
+                    preferred: .floating,
+                    scene: .workspace
+                ) == .floating,
+            "software uses floating only in mirror; hardware honors preference in both scenes; Workspace does not force an extra desktop switcher",
             failures: &failures
         )
         expect(

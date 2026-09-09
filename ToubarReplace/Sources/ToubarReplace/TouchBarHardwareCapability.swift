@@ -75,12 +75,22 @@ enum SoftwareWorkspaceLaunchPolicy {
         !usesSoftwareWorkspace
     }
 
-    /// Effective switcher placement: software mode always uses the floating window.
+    /// Effective switcher placement.
+    ///
+    /// Software mode only needs the floating window in **mirror** (no physical
+    /// grid). Workspace itself always has an in-bar return, so the extra
+    /// desktop pill is hidden there.
+    /// Hardware honors the user preference in both scenes; Workspace still
+    /// hosts its own physical return item.
     static func effectiveSwitcherDisplayMode(
         usesSoftwareWorkspace: Bool,
-        preferred: WorkspaceSwitcherDisplayMode
+        preferred: WorkspaceSwitcherDisplayMode,
+        scene: BarScene = .mirror
     ) -> WorkspaceSwitcherDisplayMode {
-        usesSoftwareWorkspace ? .floating : preferred
+        if usesSoftwareWorkspace {
+            return scene == .workspace ? .touchBar : .floating
+        }
+        return preferred
     }
 }
 

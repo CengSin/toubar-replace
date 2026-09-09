@@ -29,7 +29,12 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>用于读取 Finder 当前目录，并通过用户选择的终端应用在项目目录中启动 Agent。</string>
+	<string>用于打开你固定到 Workspace 的应用。</string>
 </dict>
 </plist>

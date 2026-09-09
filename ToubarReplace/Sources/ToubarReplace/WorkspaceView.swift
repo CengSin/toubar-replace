@@ -194,123 +194,23 @@ final class WorkspaceSwitcherWindowController: NSWindowController {
     }
 }
 
-/// Agent zone: equal icon slots via real `NSButton`s (same pattern as custom apps).
-@MainActor
-final class AgentIconRowView: NSView {
-    private let emptyLabel = NSTextField(labelWithString: "未发现 Agent")
-    private var iconButtons: [WorkspaceChromeButton] = []
-    private var agents: [AvailableAgent] = []
-
-    var onAgentActivated: ((AvailableAgent) -> Void)?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        // Transparent so design-v2 continuous tray shows through.
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.masksToBounds = true
-
-        emptyLabel.textColor = WorkspaceTouchBarStyle.secondaryTextColor
-        emptyLabel.alignment = .center
-        emptyLabel.font = WorkspaceTouchBarStyle.secondaryFont
-        emptyLabel.isHidden = true
-        addSubview(emptyLabel)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func layout() {
-        super.layout()
-        emptyLabel.frame = bounds.insetBy(dx: 4, dy: 1)
-        guard !iconButtons.isEmpty else { return }
-        let slots = WorkspaceTouchBarLayout.slotFrames(
-            in: bounds,
-            slotCount: iconButtons.count
-        )
-        for (index, button) in iconButtons.enumerated() where index < slots.count {
-            button.frame = slots[index]
-        }
-    }
-
-    func display(agents: [AvailableAgent]) {
-        self.agents = agents
-        iconButtons.forEach { $0.removeFromSuperview() }
-        iconButtons.removeAll()
-
-        emptyLabel.isHidden = !agents.isEmpty
-        for (index, agent) in agents.enumerated() {
-            let button = makeAgentButton(agent: agent, index: index)
-            addSubview(button)
-            iconButtons.append(button)
-        }
-        needsLayout = true
-    }
-
-    func setEnabled(_ enabled: Bool) {
-        iconButtons.forEach { $0.isEnabled = enabled }
-    }
-
-    private func makeAgentButton(
-        agent: AvailableAgent,
-        index: Int
-    ) -> WorkspaceChromeButton {
-        let button = WorkspaceChromeButton()
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyDown
-        let icon = WorkspaceTouchBarStyle.agentIcon(for: agent)
-        button.image = icon
-        button.contentTintColor = icon?.isTemplate == true
-            ? WorkspaceTouchBarStyle.primaryTextColor
-            : nil
-        button.toolTip = "用 \(agent.displayName) 打开当前项目"
-        button.setAccessibilityLabel(agent.displayName)
-        button.tag = index
-        button.target = self
-        button.action = #selector(activateAgent(_:))
-        return button
-    }
-
-    @objc private func activateAgent(_ sender: NSButton) {
-        guard agents.indices.contains(sender.tag) else { return }
-        onAgentActivated?(agents[sender.tag])
-    }
-}
-
 @MainActor
 final class WorkspaceBarView: NSView {
+    private let switcherButton = WorkspaceChromeButton()
     private let trayView = NSView()
-    private let pathView = WorkspaceTouchBarPathView()
-    private let agentIconRow = AgentIconRowView()
+    private let quotaPlate = QuotaPlateView()
     private let customAppsView = WorkspaceCustomAppsView()
-    private let pathAgentsDivider = NSView()
-    private let agentsCustomDivider = NSView()
-    private var context: WorkspaceContext?
+    private let zoneDivider = NSView()
 
-    var onResolvePath: (() -> Void)?
-    var onSelectRecentProject: ((URL) -> Void)?
-    var onBrowseWorkspaceDirectory: (() -> Void)?
-    var onCancelPathPicker: (() -> Void)?
-    var onAgentActivated: ((AvailableAgent) -> Void)? {
-        didSet {
-            agentIconRow.onAgentActivated = onAgentActivated
-        }
+    var onToggleWorkspace: (() -> Void)?
+    var onOpenProvider: ((QuotaProviderID) -> Void)? {
+        didSet { quotaPlate.onOpenProvider = onOpenProvider }
     }
     var onOpenSettings: (() -> Void)? {
-        didSet {
-            customAppsView.onOpenSettings = onOpenSettings
-        }
+        didSet { customAppsView.onOpenSettings = onOpenSettings }
     }
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)? {
-        didSet {
-            customAppsView.onOpenCustomApp = onOpenCustomApp
-        }
+        didSet { customAppsView.onOpenCustomApp = onOpenCustomApp }
     }
 
     override init(frame frameRect: NSRect) {
@@ -318,30 +218,29 @@ final class WorkspaceBarView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
 
+        switcherButton.image = NSImage(
+            systemSymbolName: "chevron.backward",
+            accessibilityDescription: "返回 Touch Bar 镜像"
+        )
+        switcherButton.contentTintColor = .white
+        switcherButton.imageScaling = .scaleProportionallyDown
+        switcherButton.imagePosition = .imageOnly
+        switcherButton.target = self
+        switcherButton.action = #selector(toggleWorkspace)
+        switcherButton.toolTip = "点击返回 Touch Bar 镜像"
+        switcherButton.setAccessibilityLabel("返回 Touch Bar 镜像")
+        addSubview(switcherButton)
+
         trayView.wantsLayer = true
         trayView.layer?.backgroundColor =
             WorkspaceTouchBarStyle.trayBackground.cgColor
         trayView.layer?.cornerRadius = WorkspaceTouchBarStyle.trayCornerRadius
         addSubview(trayView)
 
-        pathView.onActivate = { [weak self] in
-            self?.onResolvePath?()
+        quotaPlate.onOpenProvider = { [weak self] provider in
+            self?.onOpenProvider?(provider)
         }
-        pathView.onSelectRecent = { [weak self] url in
-            self?.onSelectRecentProject?(url)
-        }
-        pathView.onBrowse = { [weak self] in
-            self?.onBrowseWorkspaceDirectory?()
-        }
-        pathView.onCancel = { [weak self] in
-            self?.onCancelPathPicker?()
-        }
-        addSubview(pathView)
-
-        agentIconRow.onAgentActivated = { [weak self] agent in
-            self?.onAgentActivated?(agent)
-        }
-        addSubview(agentIconRow)
+        addSubview(quotaPlate)
 
         customAppsView.onOpenSettings = { [weak self] in
             self?.onOpenSettings?()
@@ -351,14 +250,12 @@ final class WorkspaceBarView: NSView {
         }
         addSubview(customAppsView)
 
-        for divider in [pathAgentsDivider, agentsCustomDivider] {
-            divider.wantsLayer = true
-            divider.layer?.backgroundColor = WorkspaceTouchBarStyle
-                .dividerColor.cgColor
-            addSubview(divider)
-        }
+        zoneDivider.wantsLayer = true
+        zoneDivider.layer?.backgroundColor = WorkspaceTouchBarStyle
+            .dividerColor.cgColor
+        addSubview(zoneDivider)
         reloadCustomAppsFromPreferences()
-        showIdle(lastPath: WorkspacePreferences.lastPath)
+        showQuota(.empty)
     }
 
     @available(*, unavailable)
@@ -375,6 +272,11 @@ final class WorkspaceBarView: NSView {
         needsLayout = true
     }
 
+    func showQuota(_ state: QuotaBoardState) {
+        quotaPlate.display(state)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -384,174 +286,44 @@ final class WorkspaceBarView: NSView {
             ?? 2
         trayView.layer?.contentsScale = scale
 
-        // Mirror fallback: no embedded switcher; tray full width.
-        // Path plate hugs title and is centered in the path zone.
-        let tray = WorkspaceTouchBarLayout.trayFrame(in: bounds)
-        trayView.frame = tray
-        let fillsPathZone = pathView.fillsPathZone
-        let pathPreferred = fillsPathZone ? 0 : pathView.preferredPillWidth
-        let regions = WorkspaceTouchBarLayout.regionFrames(
-            in: tray,
-            pathPreferredWidth: pathPreferred
-        )
-        let pathInner = WorkspaceTouchBarLayout.zoneContentRect(regions.path)
-        let pathHeight = max(
-            tray.height - WorkspaceTouchBarLayout.slotVerticalInset * 2,
+        let strip = WorkspaceTouchBarLayout.stripFrames(in: bounds)
+        switcherButton.frame = strip.switcher
+        trayView.frame = strip.tray
+        let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(strip.quota)
+        let plateHeight = max(
+            strip.tray.height - WorkspaceTouchBarLayout.slotVerticalInset * 2,
             22
         )
-        if fillsPathZone {
-            pathView.frame = NSRect(
-                x: pathInner.minX,
-                y: tray.midY - pathHeight / 2,
-                width: pathInner.width,
-                height: pathHeight
-            )
-        } else {
-            let pathPlateWidth = min(max(pathPreferred, 1), pathInner.width)
-            pathView.frame = NSRect(
-                x: floor(pathInner.midX - pathPlateWidth / 2),
-                y: tray.midY - pathHeight / 2,
-                width: pathPlateWidth,
-                height: pathHeight
-            )
-        }
-
-        let agentsInner = WorkspaceTouchBarLayout.zoneContentRect(regions.agents)
-        let customInner = WorkspaceTouchBarLayout.zoneContentRect(regions.custom)
-        agentIconRow.frame = NSRect(
-            x: agentsInner.minX,
-            y: tray.minY,
-            width: agentsInner.width,
-            height: tray.height
+        quotaPlate.frame = NSRect(
+            x: quotaInner.minX,
+            y: strip.tray.midY - plateHeight / 2,
+            width: quotaInner.width,
+            height: plateHeight
         )
+
+        let appsInner = WorkspaceTouchBarLayout.zoneContentRect(strip.apps)
         customAppsView.frame = NSRect(
-            x: customInner.minX,
-            y: tray.minY,
-            width: customInner.width,
-            height: tray.height
+            x: appsInner.minX,
+            y: strip.tray.minY,
+            width: appsInner.width,
+            height: strip.tray.height
         )
 
         let dividerHeight: CGFloat = 18
-        pathAgentsDivider.frame = NSRect(
+        zoneDivider.frame = NSRect(
             x: floor(
-                regions.agents.minX
+                strip.apps.minX
                     - WorkspaceTouchBarLayout.zoneDividerWidth / 2
             ),
-            y: floor(tray.midY - dividerHeight / 2),
-            width: WorkspaceTouchBarLayout.zoneDividerWidth,
-            height: dividerHeight
-        )
-        agentsCustomDivider.frame = NSRect(
-            x: floor(
-                regions.custom.minX
-                    - WorkspaceTouchBarLayout.zoneDividerWidth / 2
-            ),
-            y: floor(tray.midY - dividerHeight / 2),
+            y: floor(strip.tray.midY - dividerHeight / 2),
             width: WorkspaceTouchBarLayout.zoneDividerWidth,
             height: dividerHeight
         )
     }
 
-    func showIdle(lastPath: URL?) {
-        context = nil
-        if let lastPath {
-            pathView.display(
-                image: WorkspaceTouchBarStyle.symbol(
-                    named: "folder",
-                    accessibilityDescription: "最近使用的项目"
-                ),
-                title: "最近 · \(lastPath.lastPathComponent)",
-                toolTip: "点击重新获取；上次路径：\(lastPath.path)",
-                enabled: true
-            )
-        } else {
-            pathView.display(
-                image: WorkspaceTouchBarStyle.symbol(
-                    named: "folder",
-                    accessibilityDescription: "获取当前项目路径"
-                ),
-                title: "点击获取当前项目",
-                toolTip: nil,
-                enabled: true
-            )
-        }
-        agentIconRow.display(agents: [])
-        needsLayout = true
+    @objc private func toggleWorkspace() {
+        onToggleWorkspace?()
     }
-
-    func showRecents(_ urls: [URL]) {
-        pathView.displayRecents(urls)
-        needsLayout = true
-    }
-
-    func showResolving() {
-        context = nil
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "hourglass",
-                accessibilityDescription: "正在获取当前项目路径"
-            ),
-            title: "正在获取当前项目路径…",
-            toolTip: nil,
-            enabled: false
-        )
-        agentIconRow.display(agents: [])
-        needsLayout = true
-    }
-
-    func showReady(
-        context: WorkspaceContext,
-        agents: [AvailableAgent]
-    ) {
-        self.context = context
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "folder",
-                accessibilityDescription: "当前项目路径"
-            ),
-            title: context.compactTitle,
-            toolTip: context.directoryURL.path,
-            enabled: true
-        )
-        agentIconRow.display(agents: agents)
-        agentIconRow.setEnabled(true)
-        needsLayout = true
-    }
-
-    func showLaunching(
-        agent: AvailableAgent,
-        context: WorkspaceContext
-    ) {
-        self.context = context
-        pathView.display(
-            image: WorkspaceTouchBarStyle.symbol(
-                named: "hourglass",
-                accessibilityDescription: "正在启动 Agent"
-            ),
-            title: "\(context.compactTitle) · 正在打开 \(agent.displayName)…",
-            toolTip: context.directoryURL.path,
-            enabled: false
-        )
-        agentIconRow.setEnabled(false)
-    }
-
-    func showFailure(
-        _ message: String,
-        context: WorkspaceContext?,
-        agents: [AvailableAgent]
-    ) {
-        self.context = context
-        pathView.display(
-            image: nil,
-            title: message,
-            toolTip: context?.directoryURL.path,
-            enabled: true
-        )
-        agentIconRow.display(agents: context == nil ? [] : agents)
-        agentIconRow.setEnabled(context != nil)
-        needsLayout = true
-    }
-
 }
 
 @MainActor

@@ -63,6 +63,16 @@ enum TouchBarIdleOpacity {
     ) -> CGFloat {
         isIdle && isObscuringOtherAppContent ? idle : active
     }
+
+    /// Idle fade is for the live capture mirror only. Software Workspace and
+    /// the Workspace scene have no (or stalled) display-stream frames, so a
+    /// timeout would dim the launcher for no reason.
+    static func allowsIdle(
+        captureRunning: Bool,
+        scene: BarScene
+    ) -> Bool {
+        captureRunning && scene == .mirror
+    }
 }
 
 /// One on-screen window entry for occlusion tests (Cocoa coordinates).
@@ -284,6 +294,7 @@ final class TouchBarIdleOpacityController {
     private var occlusionObservers: [NSObjectProtocol] = []
     private var lastFrameActivityAt: ContinuousClock.Instant?
     private var isIdle = false
+    private var allowsIdle = true
     private var idleDelay: Duration
 
     init(
@@ -312,6 +323,23 @@ final class TouchBarIdleOpacityController {
         window?.alphaValue = TouchBarIdleOpacity.active
     }
 
+    func setAllowsIdle(_ allowsIdle: Bool) {
+        self.allowsIdle = allowsIdle
+        if allowsIdle {
+            registerFrameActivity()
+            return
+        }
+        lastFrameActivityAt = clock.now
+        isIdle = false
+        idleMonitorTask?.cancel()
+        idleMonitorTask = nil
+        occlusionPollTask?.cancel()
+        occlusionPollTask = nil
+        if window?.alphaValue != TouchBarIdleOpacity.active {
+            window?.alphaValue = TouchBarIdleOpacity.active
+        }
+    }
+
     func registerFrameActivity() {
         lastFrameActivityAt = clock.now
         isIdle = false
@@ -320,6 +348,7 @@ final class TouchBarIdleOpacityController {
         if window?.alphaValue != TouchBarIdleOpacity.active {
             window?.alphaValue = TouchBarIdleOpacity.active
         }
+        guard allowsIdle else { return }
         startIdleMonitorIfNeeded()
     }
 
@@ -343,6 +372,7 @@ final class TouchBarIdleOpacityController {
     /// One monitor follows the latest activity deadline. Frames only update the
     /// timestamp; they do not allocate and cancel a new sleeping task.
     private func startIdleMonitorIfNeeded() {
+        guard allowsIdle else { return }
         guard idleMonitorTask == nil else { return }
         idleMonitorTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -364,6 +394,7 @@ final class TouchBarIdleOpacityController {
                     continue
                 }
                 self.idleMonitorTask = nil
+                guard self.allowsIdle else { return }
                 self.enterIdleState()
                 return
             }
@@ -371,6 +402,11 @@ final class TouchBarIdleOpacityController {
     }
 
     private func enterIdleState() {
+        guard allowsIdle else {
+            isIdle = false
+            window?.alphaValue = TouchBarIdleOpacity.active
+            return
+        }
         isIdle = true
         refreshOcclusionWhileIdle()
         startIdleOcclusionPolling()
@@ -603,7 +639,7 @@ final class TouchBarSurfaceView: NSView {
         statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         statusLabel.stringValue = """
         当前 Mac 无物理 Touch Bar
-        点击切换按钮打开 Workspace，选择路径并启动 Agent
+        点击切换按钮打开 Workspace，查看额度并启动应用
         """
         statusLabel.toolTip = statusLabel.stringValue
         statusLabel.isHidden = false
@@ -616,12 +652,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let rootView: TouchBarRootView
     private let capture: TouchBarCapture
     private let idleOpacityController: TouchBarIdleOpacityController
-    private let workspacePathResolver = WorkspacePathResolver()
-    private let agentRegistry = AgentRegistry()
-    private let terminalAdapterRegistry = TerminalAdapterRegistry()
-    private lazy var agentLauncher = AgentLauncher(
-        terminalAdapterRegistry: terminalAdapterRegistry
-    )
+    private let quotaStore = QuotaSnapshotStore()
     private let workspaceTouchBarController = WorkspaceTouchBarController()
     private let switcherTouchBarController = SwitcherTouchBarController()
     private var workspaceSwitcherWindowController:
@@ -629,28 +660,24 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     /// True only when launch restored an autosaved frame under `.lastSaved`.
     private var hasRestoredFrame = false
     private var workspaceObservers: [NSObjectProtocol] = []
-    private var finderSyncTask: Task<Void, Never>?
     private var resumeToWorkspace = false
     /// Sleep/lock fires multiple notifications; true after the first pause
     /// so later ones cannot rewrite `resumeToWorkspace` from the torn-down scene.
     private var isHardwareSessionPaused = false
     private var isRunning = false
-    private var lastFrontmostContext: FrontmostAppContext?
-    private var currentWorkspaceContext: WorkspaceContext?
-    private var availableAgents: [AvailableAgent] = []
-    private var isAgentLaunchInProgress = false
     private var workspaceGeneration: UInt64 = 0
-    private var agentLaunchTask: Task<Void, Never>?
-    private var autoCollapseTask: Task<Void, Never>?
-    private var lastLaunchSignature: (AgentID, String, Date)?
+    private var recommendedLaunchTask: Task<Void, Never>?
+    private var quotaRefreshTask: Task<Void, Never>?
+    /// Hardware Workspace present failed: keep a desktop switcher so the
+    /// user is not stuck with a dimmed mirror and no return control.
+    private var forceFloatingSwitcher = false
     private(set) var displayPosition = TouchBarPreferences.displayPosition
     var onPixelSizeChanged: ((CGSize) -> Void)?
     var onCustomTopLeftChanged: ((CGPoint) -> Void)?
-    var onRequestWorkspaceDirectory: (
-        (@escaping (URL?) -> Void) -> Void
-    )?
     /// Opens the settings window (custom apps are managed there).
     var onOpenSettings: (() -> Void)?
+    /// Fires after OpenUsage pools refresh so Settings can list subscriptions.
+    var onQuotaProvidersChanged: (() -> Void)?
 
     init() {
         let scale = NSScreen.main?.backingScaleFactor ?? 2
@@ -773,12 +800,13 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             presentPhysicalSwitcherIfNeeded()
             updateMirrorClickThrough()
         }
+        syncIdleOpacityPolicy()
+        configureFloatingWorkspaceSwitcher()
+        showFloatingWorkspaceSwitcherIfNeeded()
     }
 
     func stop() {
         isRunning = false
-        finderSyncTask?.cancel()
-        finderSyncTask = nil
         cancelWorkspaceAsyncWork(invalidateSession: true)
         workspaceTouchBarController.dismiss()
         switcherTouchBarController.dismiss()
@@ -937,32 +965,12 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         persistCurrentPixelSize()
     }
 
-    var workspaceAutoCollapse: Bool {
-        WorkspacePreferences.autoCollapse
-    }
-
-    func setWorkspaceAutoCollapse(_ autoCollapse: Bool) {
-        WorkspacePreferences.autoCollapse = autoCollapse
-    }
-
     var workspaceStartupScene: WorkspaceStartupScene {
         WorkspacePreferences.startupScene
     }
 
     func setWorkspaceStartupScene(_ scene: WorkspaceStartupScene) {
         WorkspacePreferences.startupScene = scene
-    }
-
-    var workspaceTerminalApplicationURL: URL? {
-        terminalAdapterRegistry.selectedAdapter()?.applicationURL
-    }
-
-    func setWorkspaceTerminalApplicationURL(_ applicationURL: URL?) {
-        WorkspacePreferences.terminalApplicationURL = applicationURL
-    }
-
-    func supportsTerminalApplication(at applicationURL: URL) -> Bool {
-        terminalAdapterRegistry.adapter(for: applicationURL) != nil
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -1050,20 +1058,11 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func installWorkspaceActions() {
-        rootView.workspaceView.onResolvePath = { [weak self] in
-            self?.chooseWorkspacePath()
+        rootView.workspaceView.onToggleWorkspace = { [weak self] in
+            self?.toggleWorkspace()
         }
-        rootView.workspaceView.onSelectRecentProject = { [weak self] url in
-            self?.selectRecentProject(url)
-        }
-        rootView.workspaceView.onBrowseWorkspaceDirectory = { [weak self] in
-            self?.browseWorkspaceDirectory()
-        }
-        rootView.workspaceView.onCancelPathPicker = { [weak self] in
-            self?.cancelWorkspacePathPicker()
-        }
-        rootView.workspaceView.onAgentActivated = { [weak self] agent in
-            self?.launch(agent)
+        rootView.workspaceView.onOpenProvider = { [weak self] provider in
+            self?.openProvider(provider)
         }
         rootView.workspaceView.onOpenSettings = { [weak self] in
             self?.onOpenSettings?()
@@ -1071,20 +1070,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.workspaceView.onOpenCustomApp = { [weak self] app in
             self?.openCustomWorkspaceApp(app)
         }
-        workspaceTouchBarController.onResolvePath = { [weak self] in
-            self?.chooseWorkspacePath()
-        }
-        workspaceTouchBarController.onSelectRecentProject = { [weak self] url in
-            self?.selectRecentProject(url)
-        }
-        workspaceTouchBarController.onBrowseWorkspaceDirectory = { [weak self] in
-            self?.browseWorkspaceDirectory()
-        }
-        workspaceTouchBarController.onCancelPathPicker = { [weak self] in
-            self?.cancelWorkspacePathPicker()
-        }
-        workspaceTouchBarController.onAgentActivated = { [weak self] agent in
-            self?.launch(agent)
+        workspaceTouchBarController.onOpenProvider = { [weak self] provider in
+            self?.openProvider(provider)
         }
         workspaceTouchBarController.onOpenSettings = { [weak self] in
             self?.onOpenSettings?()
@@ -1099,7 +1086,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             self?.toggleWorkspace()
         }
         switcherTouchBarController.onToggleWorkspace = { [weak self] in
-            self?.lastFrontmostContext = FrontmostAppContext.capture()
             self?.toggleWorkspace()
         }
         switcherTouchBarController.onPresentationInterrupted = { [weak self] in
@@ -1113,9 +1099,13 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private var effectiveSwitcherDisplayMode: WorkspaceSwitcherDisplayMode {
-        SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
+        if forceFloatingSwitcher {
+            return .floating
+        }
+        return SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
             usesSoftwareWorkspace: usesSoftwareWorkspace,
-            preferred: WorkspacePreferences.switcherDisplayMode
+            preferred: WorkspacePreferences.switcherDisplayMode,
+            scene: rootView.scene
         )
     }
 
@@ -1124,6 +1114,19 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             usesSoftwareWorkspace: usesSoftwareWorkspace,
             scene: rootView.scene,
             showsWorkspaceFallback: rootView.showsWorkspaceFallback
+        )
+    }
+
+    private func syncIdleOpacityPolicy() {
+        let captureRunning = isRunning
+            && SoftwareWorkspaceLaunchPolicy.shouldStartHardwareCapture(
+                usesSoftwareWorkspace: usesSoftwareWorkspace
+            )
+        idleOpacityController.setAllowsIdle(
+            TouchBarIdleOpacity.allowsIdle(
+                captureRunning: captureRunning,
+                scene: rootView.scene
+            )
         )
     }
 
@@ -1140,9 +1143,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         let controller = WorkspaceSwitcherWindowController()
-        controller.switcherView.onMouseDown = { [weak self] in
-            self?.lastFrontmostContext = FrontmostAppContext.capture()
-        }
+        controller.switcherView.onMouseDown = nil
         controller.switcherView.onToggleScene = { [weak self] in
             self?.toggleWorkspace()
         }
@@ -1187,11 +1188,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         if !isLaunch {
             rootView.beginSceneTransitionCover()
         }
-        if lastFrontmostContext == nil {
-            lastFrontmostContext = FrontmostAppContext.capture()
-        }
-        currentWorkspaceContext = nil
-        availableAgents = []
         rootView.setScene(.workspace)
         workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
         idleOpacityController.registerFrameActivity()
@@ -1199,7 +1195,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.setWorkspaceFallbackVisible(true)
         updateMirrorClickThrough()
 
-        applyInitialWorkspacePath()
+        refreshQuotaDisplay()
+        syncIdleOpacityPolicy()
+        configureFloatingWorkspaceSwitcher()
+        showFloatingWorkspaceSwitcherIfNeeded()
         if !isLaunch {
             rootView.scheduleSceneTransitionCoverFade()
         }
@@ -1223,11 +1222,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         if !isLaunch {
             rootView.beginSceneTransitionCover()
         }
-        if lastFrontmostContext == nil {
-            lastFrontmostContext = FrontmostAppContext.capture()
-        }
-        currentWorkspaceContext = nil
-        availableAgents = []
         rootView.setScene(.workspace)
         workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
         idleOpacityController.registerFrameActivity()
@@ -1235,72 +1229,50 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
         do {
             try workspaceTouchBarController.present()
+            forceFloatingSwitcher = false
             rootView.setWorkspaceFallbackVisible(false)
             updateMirrorClickThrough()
         } catch {
-            rootView.workspaceView.showFailure(
-                error.localizedDescription,
-                context: nil,
-                agents: []
-            )
+            forceFloatingSwitcher = true
             rootView.setWorkspaceFallbackVisible(true)
             updateMirrorClickThrough()
-            presentPhysicalSwitcherIfNeeded()
+            configureFloatingWorkspaceSwitcher()
+            showFloatingWorkspaceSwitcherIfNeeded()
+            refreshQuotaDisplay()
+            syncIdleOpacityPolicy()
             if !isLaunch {
                 rootView.scheduleSceneTransitionCoverFade()
             }
             return
         }
 
-        applyInitialWorkspacePath()
+        refreshQuotaDisplay()
+        syncIdleOpacityPolicy()
+        configureFloatingWorkspaceSwitcher()
+        showFloatingWorkspaceSwitcherIfNeeded()
         if !isLaunch {
             rootView.scheduleSceneTransitionCoverFade()
         }
     }
 
-    private func applyInitialWorkspacePath() {
-        let frontmostContext = lastFrontmostContext
-            ?? FrontmostAppContext.capture()
-        lastFrontmostContext = frontmostContext
-        if let context = workspacePathResolver.resolveFrontmostPath(
-            from: frontmostContext
-        ) {
-            acceptWorkspaceContext(context)
-            return
-        }
-        if let recentContext = workspacePathResolver.recentContext(
-            frontmostApplication: frontmostContext
-        ) {
-            acceptWorkspaceContext(recentContext)
-            return
-        }
-        rootView.workspaceView.showIdle(
-            lastPath: WorkspacePreferences.lastPath
-        )
-        workspaceTouchBarController.showIdle(
-            lastPath: WorkspacePreferences.lastPath
-        )
-    }
-
     private func closeWorkspace() {
         cancelWorkspaceAsyncWork(invalidateSession: true)
         rootView.beginSceneTransitionCover()
-        finderSyncTask?.cancel()
-        finderSyncTask = nil
         if !usesSoftwareWorkspace {
             workspaceTouchBarController.dismiss()
         }
         rootView.setWorkspaceFallbackVisible(false)
         rootView.setScene(.mirror)
         workspaceSwitcherWindowController?.switcherView.setScene(.mirror)
-        idleOpacityController.registerFrameActivity()
-        lastFrontmostContext = nil
         if usesSoftwareWorkspace {
             rootView.surfaceView.displaySoftwareWorkspaceIdle()
-        } else {
-            presentPhysicalSwitcherIfNeeded()
         }
         updateMirrorClickThrough()
+        forceFloatingSwitcher = false
+        configureFloatingWorkspaceSwitcher()
+        showFloatingWorkspaceSwitcherIfNeeded()
+        presentPhysicalSwitcherIfNeeded()
+        syncIdleOpacityPolicy()
         rootView.scheduleSceneTransitionCoverFade()
     }
 
@@ -1313,105 +1285,111 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         resumeToWorkspace = true
         cancelWorkspaceAsyncWork(invalidateSession: true)
         rootView.beginSceneTransitionCover()
-        finderSyncTask?.cancel()
-        finderSyncTask = nil
         rootView.setWorkspaceFallbackVisible(false)
         rootView.setScene(.mirror)
         workspaceSwitcherWindowController?.switcherView.setScene(.mirror)
         idleOpacityController.registerFrameActivity()
-        lastFrontmostContext = nil
         presentPhysicalSwitcherIfNeeded()
         updateMirrorClickThrough()
+        syncIdleOpacityPolicy()
         rootView.scheduleSceneTransitionCoverFade()
-    }
-
-    private func resolveWorkspacePath(refreshFrontmostContext: Bool) {
-        let frontmostContext = refreshFrontmostContext
-            ? FrontmostAppContext.capture()
-            : lastFrontmostContext ?? FrontmostAppContext.capture()
-        lastFrontmostContext = frontmostContext
-        workspaceTouchBarController.showResolving()
-        rootView.workspaceView.showResolving()
-
-        if let context = workspacePathResolver.resolveFrontmostPath(
-            from: frontmostContext
-        ) {
-            acceptWorkspaceContext(context)
-            return
-        }
-
-        requestWorkspaceDirectory(frontmostContext: frontmostContext)
-    }
-
-    private func chooseWorkspacePath() {
-        let frontmostContext = FrontmostAppContext.capture()
-        lastFrontmostContext = frontmostContext
-        let recents = recentProjectURLsForDisplay()
-        if recents.isEmpty {
-            requestWorkspaceDirectory(frontmostContext: frontmostContext)
-            return
-        }
-        rootView.workspaceView.showRecents(recents)
-        workspaceTouchBarController.showRecents(recents)
-    }
-
-    private func selectRecentProject(_ directoryURL: URL) {
-        let frontmostContext = lastFrontmostContext
-            ?? FrontmostAppContext.capture()
-        guard
-            let context = workspacePathResolver.manualContext(
-                directoryURL: directoryURL,
-                frontmostApplication: frontmostContext
-            )
-        else {
-            chooseWorkspacePath()
-            return
-        }
-        acceptWorkspaceContext(
-            WorkspaceContext(
-                directoryURL: context.directoryURL,
-                source: .recent,
-                frontmostApplication: frontmostContext
-            )
-        )
-    }
-
-    private func browseWorkspaceDirectory() {
-        requestWorkspaceDirectory(
-            frontmostContext: lastFrontmostContext
-                ?? FrontmostAppContext.capture()
-        )
-    }
-
-    private func cancelWorkspacePathPicker() {
-        if let context = currentWorkspaceContext {
-            rootView.workspaceView.showReady(
-                context: context,
-                agents: availableAgents
-            )
-            workspaceTouchBarController.showReady(
-                context: context,
-                agents: availableAgents
-            )
-            return
-        }
-        rootView.workspaceView.showIdle(lastPath: WorkspacePreferences.lastPath)
-        workspaceTouchBarController.showIdle(
-            lastPath: WorkspacePreferences.lastPath
-        )
-    }
-
-    private func recentProjectURLsForDisplay() -> [URL] {
-        WorkspaceRecentProjectList.displayURLs(
-            stored: WorkspacePreferences.recentProjects,
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            existingDirectory: WorkspacePathResolver.existingDirectory(at:)
-        )
     }
 
     func reloadCustomAppsFromPreferences() {
         rootView.workspaceView.reloadCustomAppsFromPreferences()
         workspaceTouchBarController.reloadCustomAppsFromPreferences()
+    }
+
+    func quotaProviderChoices() -> [QuotaProviderChoice] {
+        let live = quotaStore.providerChoices()
+        return live.isEmpty ? WorkspacePreferences.seenQuotaProviders : live
+    }
+
+    func reloadQuotaVisibilityFromPreferences() {
+        applyQuotaPlate()
+    }
+
+    private func refreshQuotaDisplay() {
+        applyQuotaPlate()
+        startQuotaRefreshLoop()
+    }
+
+    private func applyQuotaPlate() {
+        let state = quotaStore.boardState()
+        rootView.workspaceView.showQuota(state)
+        workspaceTouchBarController.showQuota(state)
+    }
+
+    private func startQuotaRefreshLoop() {
+        quotaRefreshTask?.cancel()
+        let generation = workspaceGeneration
+        quotaRefreshTask = Task { @MainActor [weak self] in
+            await self?.loadOpenUsageQuota(generation: generation)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                await self?.loadOpenUsageQuota(generation: generation)
+            }
+        }
+    }
+
+    private func loadOpenUsageQuota(generation: UInt64) async {
+        guard canUpdateWorkspace(from: generation) else { return }
+        do {
+            let pools = try await OpenUsageQuotaReader.fetch()
+            guard canUpdateWorkspace(from: generation) else { return }
+            quotaStore.replace(pools)
+            WorkspacePreferences.rememberSeenQuotaProviders(pools)
+            onQuotaProvidersChanged?()
+        } catch {
+            guard canUpdateWorkspace(from: generation) else { return }
+        }
+        applyQuotaPlate()
+    }
+
+    private func openProvider(_ provider: QuotaProviderID) {
+        if let app = QuotaProviderLaunch.matchingCustomApp(
+            provider: provider,
+            apps: WorkspacePreferences.customApps
+        ) {
+            openCustomWorkspaceApp(app)
+            return
+        }
+        let generation = workspaceGeneration
+        recommendedLaunchTask?.cancel()
+        recommendedLaunchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.canUpdateWorkspace(from: generation) {
+                    self.recommendedLaunchTask = nil
+                }
+            }
+            let workspace = NSWorkspace.shared
+            for bundleIdentifier in provider.bundleIdentifiers {
+                if let url = workspace.urlForApplication(
+                    withBundleIdentifier: bundleIdentifier
+                ) {
+                    try? await CustomWorkspaceAppLauncher.openApplication(at: url)
+                    return
+                }
+            }
+            for name in provider.applicationNames {
+                let candidates = [
+                    URL(fileURLWithPath: "/Applications/\(name).app"),
+                    FileManager.default.homeDirectoryForCurrentUser
+                        .appendingPathComponent("Applications/\(name).app"),
+                ]
+                if let url = candidates.first(where: {
+                    FileManager.default.fileExists(atPath: $0.path)
+                }) {
+                    try? await CustomWorkspaceAppLauncher.openApplication(at: url)
+                    return
+                }
+            }
+            if let fallback = provider.fallbackURL {
+                workspace.open(fallback)
+            }
+        }
     }
 
     private func openCustomWorkspaceApp(_ app: CustomWorkspaceApp) {
@@ -1422,74 +1400,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 try await CustomWorkspaceAppLauncher.open(app)
             } catch {
                 guard self.canUpdateWorkspace(from: generation) else { return }
-                // Soft failure: path / agent messaging surfaces stay usable.
-                self.rootView.workspaceView.showFailure(
-                    error.localizedDescription,
-                    context: self.currentWorkspaceContext,
-                    agents: self.availableAgents
-                )
-                self.workspaceTouchBarController.showFailure(
-                    error.localizedDescription,
-                    context: self.currentWorkspaceContext,
-                    agents: self.availableAgents
-                )
             }
         }
-    }
-
-    private func requestWorkspaceDirectory(
-        frontmostContext: FrontmostAppContext
-    ) {
-        guard let onRequestWorkspaceDirectory else {
-            rootView.workspaceView.showFailure(
-                "无法获取当前路径",
-                context: nil,
-                agents: []
-            )
-            workspaceTouchBarController.showFailure(
-                "无法获取当前路径",
-                context: nil,
-                agents: []
-            )
-            return
-        }
-        onRequestWorkspaceDirectory { [weak self] directoryURL in
-            guard let self else { return }
-            guard
-                let directoryURL,
-                let context = self.workspacePathResolver.manualContext(
-                    directoryURL: directoryURL,
-                    frontmostApplication: frontmostContext
-                )
-            else {
-                self.rootView.workspaceView.showFailure(
-                    "未选择项目目录，点击定位按钮重试",
-                    context: self.currentWorkspaceContext,
-                    agents: self.availableAgents
-                )
-                self.workspaceTouchBarController.showFailure(
-                    "未选择项目目录，点击路径重试",
-                    context: self.currentWorkspaceContext,
-                    agents: self.availableAgents
-                )
-                return
-            }
-            self.acceptWorkspaceContext(context)
-        }
-    }
-
-    private func acceptWorkspaceContext(_ context: WorkspaceContext) {
-        currentWorkspaceContext = context
-        WorkspacePreferences.lastPath = context.directoryURL
-        availableAgents = agentRegistry.discover()
-        rootView.workspaceView.showReady(
-            context: context,
-            agents: availableAgents
-        )
-        workspaceTouchBarController.showReady(
-            context: context,
-            agents: availableAgents
-        )
     }
 
     @discardableResult
@@ -1500,11 +1412,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func cancelWorkspaceAsyncWork(invalidateSession: Bool) {
-        agentLaunchTask?.cancel()
-        agentLaunchTask = nil
-        autoCollapseTask?.cancel()
-        autoCollapseTask = nil
-        isAgentLaunchInProgress = false
+        recommendedLaunchTask?.cancel()
+        recommendedLaunchTask = nil
+        quotaRefreshTask?.cancel()
+        quotaRefreshTask = nil
         if invalidateSession {
             workspaceGeneration &+= 1
         }
@@ -1516,96 +1427,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             currentGeneration: workspaceGeneration,
             scene: rootView.scene
         )
-    }
-
-    private func launch(_ agent: AvailableAgent) {
-        guard !isAgentLaunchInProgress else { return }
-        guard let context = currentWorkspaceContext else {
-            rootView.workspaceView.showFailure(
-                "请先获取当前项目路径",
-                context: nil,
-                agents: []
-            )
-            workspaceTouchBarController.showFailure(
-                "请先获取当前项目路径",
-                context: nil,
-                agents: []
-            )
-            return
-        }
-        let signature = (agent.id, context.directoryURL.path)
-        if let lastLaunchSignature,
-            lastLaunchSignature.0 == signature.0,
-            lastLaunchSignature.1 == signature.1,
-            Date().timeIntervalSince(lastLaunchSignature.2) < 1
-        {
-            return
-        }
-        lastLaunchSignature = (signature.0, signature.1, Date())
-        isAgentLaunchInProgress = true
-        rootView.workspaceView.showLaunching(agent: agent, context: context)
-        workspaceTouchBarController.showLaunching(
-            agent: agent,
-            context: context
-        )
-        let generation = workspaceGeneration
-        agentLaunchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.canUpdateWorkspace(from: generation) {
-                    self.isAgentLaunchInProgress = false
-                    self.agentLaunchTask = nil
-                }
-            }
-            do {
-                try Task.checkCancellation()
-                try await self.agentLauncher.launch(
-                    agent,
-                    at: context.directoryURL
-                )
-                try Task.checkCancellation()
-                guard self.canUpdateWorkspace(from: generation) else { return }
-                self.rootView.workspaceView.showReady(
-                    context: context,
-                    agents: self.availableAgents
-                )
-                self.workspaceTouchBarController.showReady(
-                    context: context,
-                    agents: self.availableAgents
-                )
-                guard WorkspacePreferences.autoCollapse else { return }
-                self.autoCollapseTask?.cancel()
-                self.autoCollapseTask = Task { @MainActor [weak self] in
-                    do {
-                        try await Task.sleep(for: .milliseconds(500))
-                    } catch {
-                        return
-                    }
-                    guard
-                        let self,
-                        self.canUpdateWorkspace(from: generation)
-                    else {
-                        return
-                    }
-                    self.autoCollapseTask = nil
-                    self.closeWorkspace()
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.canUpdateWorkspace(from: generation) else { return }
-                self.rootView.workspaceView.showFailure(
-                    error.localizedDescription,
-                    context: context,
-                    agents: self.availableAgents
-                )
-                self.workspaceTouchBarController.showFailure(
-                    error.localizedDescription,
-                    context: context,
-                    agents: self.availableAgents
-                )
-            }
-        }
     }
 
     private func installWorkspaceObservers() {
@@ -1684,62 +1505,5 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             )
         }
 
-        workspaceObservers.append(
-            center.addObserver(
-                forName: NSWorkspace.didActivateApplicationNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                let activatedBundleIdentifier = (
-                    notification.userInfo?[
-                        NSWorkspace.applicationUserInfoKey
-                    ] as? NSRunningApplication
-                )?.bundleIdentifier
-                Task { @MainActor [weak self] in
-                    guard
-                        let self,
-                        self.isRunning,
-                        self.rootView.scene == .workspace,
-                        activatedBundleIdentifier
-                            == FrontmostAppContext.finderBundleIdentifier
-                            || activatedBundleIdentifier
-                                == FrontmostAppContext.ottyBundleIdentifier
-                    else {
-                        return
-                    }
-                    self.scheduleFinderPathSync()
-                }
-            }
-        )
-    }
-
-    private func scheduleFinderPathSync() {
-        finderSyncTask?.cancel()
-        finderSyncTask = Task { @MainActor [weak self] in
-            for delay in [150, 300, 500] {
-                try? await Task.sleep(for: .milliseconds(delay))
-                guard
-                    !Task.isCancelled,
-                    let self,
-                    self.isRunning,
-                    self.rootView.scene == .workspace
-                else {
-                    return
-                }
-                let frontmostContext = FrontmostAppContext.capture()
-                guard frontmostContext.isFinder || frontmostContext.isOtty else {
-                    return
-                }
-                guard
-                    let context = self.workspacePathResolver
-                        .resolveFrontmostPath(from: frontmostContext)
-                else {
-                    continue
-                }
-                self.lastFrontmostContext = frontmostContext
-                self.acceptWorkspaceContext(context)
-                return
-            }
-        }
     }
 }

@@ -176,29 +176,23 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let originYField: NSTextField
     private let switcherDisplayModePopup: NSPopUpButton
     private let startupScenePopup: NSPopUpButton
-    private let terminalApplicationNameField: NSTextField
-    private let terminalClearButton: NSButton
-    private var terminalApplicationURL: URL?
     private let widthField: NSTextField
     private let heightField: NSTextField
     private let framesPerSecondField: NSTextField
     private let idleOpacityDelayField: NSTextField
-    private let workspaceAutoCollapseCheckbox: NSButton
     private let customAppsStack: NSStackView
-    private let recentsStack: NSStackView
+    private let quotaProvidersStack: NSStackView
+    private var quotaProviderChoices: [QuotaProviderChoice] = []
     private let onPositionChanged: (TouchBarDisplayPosition) -> Void
     private let onCustomTopLeftChanged: (CGPoint) -> Void
     private let onWorkspaceFloatingSwitcherChanged: (Bool) -> Void
     private let onWorkspaceStartupSceneChanged: (WorkspaceStartupScene) -> Void
-    private let onWorkspaceAutoCollapseChanged: (Bool) -> Void
-    private let onRecentsChanged: () -> Void
-    private let onPickTerminalApplication: (@escaping (URL?) -> Void) -> Void
-    private let onTerminalApplicationChanged: (URL?) -> Void
     private let onPixelSizeChanged: (CGSize) -> Void
     private let onFramesPerSecondChanged: (Int) -> Void
     private let onIdleOpacityDelayChanged: (Int) -> Void
     private let onPickApplication: (@escaping (URL?) -> Void) -> Void
     private let onCustomAppsChanged: () -> Void
+    private let onQuotaVisibilityChanged: () -> Void
     private let onWindowClosed: () -> Void
 
     init(
@@ -209,21 +203,16 @@ final class TouchBarSettingsWindowController: NSWindowController,
         currentIdleOpacityDelaySeconds: Int,
         currentWorkspaceSwitcherFloats: Bool,
         currentWorkspaceStartupScene: WorkspaceStartupScene,
-        currentWorkspaceAutoCollapse: Bool,
-        currentTerminalApplicationURL: URL?,
         onPositionChanged: @escaping (TouchBarDisplayPosition) -> Void,
         onCustomTopLeftChanged: @escaping (CGPoint) -> Void,
         onWorkspaceFloatingSwitcherChanged: @escaping (Bool) -> Void,
         onWorkspaceStartupSceneChanged: @escaping (WorkspaceStartupScene) -> Void,
-        onWorkspaceAutoCollapseChanged: @escaping (Bool) -> Void,
-        onRecentsChanged: @escaping () -> Void,
-        onPickTerminalApplication: @escaping (@escaping (URL?) -> Void) -> Void,
-        onTerminalApplicationChanged: @escaping (URL?) -> Void,
         onPixelSizeChanged: @escaping (CGSize) -> Void,
         onFramesPerSecondChanged: @escaping (Int) -> Void,
         onIdleOpacityDelayChanged: @escaping (Int) -> Void,
         onPickApplication: @escaping (@escaping (URL?) -> Void) -> Void,
         onCustomAppsChanged: @escaping () -> Void,
+        onQuotaVisibilityChanged: @escaping () -> Void,
         onWindowClosed: @escaping () -> Void
     ) {
         self.positionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -231,37 +220,22 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.originYField = NSTextField()
         self.switcherDisplayModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.startupScenePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        self.terminalApplicationNameField = NSTextField(labelWithString: "")
-        self.terminalClearButton = NSButton(
-            title: "清除",
-            target: nil,
-            action: nil
-        )
-        self.terminalApplicationURL = currentTerminalApplicationURL
         self.widthField = NSTextField()
         self.heightField = NSTextField()
         self.framesPerSecondField = NSTextField()
         self.idleOpacityDelayField = NSTextField()
-        self.workspaceAutoCollapseCheckbox = NSButton(
-            checkboxWithTitle: "启动 Agent 后自动返回镜像",
-            target: nil,
-            action: nil
-        )
         self.customAppsStack = NSStackView()
-        self.recentsStack = NSStackView()
+        self.quotaProvidersStack = NSStackView()
         self.onPositionChanged = onPositionChanged
         self.onCustomTopLeftChanged = onCustomTopLeftChanged
         self.onWorkspaceFloatingSwitcherChanged = onWorkspaceFloatingSwitcherChanged
         self.onWorkspaceStartupSceneChanged = onWorkspaceStartupSceneChanged
-        self.onWorkspaceAutoCollapseChanged = onWorkspaceAutoCollapseChanged
-        self.onRecentsChanged = onRecentsChanged
-        self.onPickTerminalApplication = onPickTerminalApplication
-        self.onTerminalApplicationChanged = onTerminalApplicationChanged
         self.onPixelSizeChanged = onPixelSizeChanged
         self.onFramesPerSecondChanged = onFramesPerSecondChanged
         self.onIdleOpacityDelayChanged = onIdleOpacityDelayChanged
         self.onPickApplication = onPickApplication
         self.onCustomAppsChanged = onCustomAppsChanged
+        self.onQuotaVisibilityChanged = onQuotaVisibilityChanged
         self.onWindowClosed = onWindowClosed
 
         let contentView = SettingsDocumentView()
@@ -323,19 +297,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
             ) ?? 0
         )
 
-        workspaceAutoCollapseCheckbox.state = currentWorkspaceAutoCollapse ? .on : .off
-
-        let terminalApplicationLabel = NSTextField(labelWithString: "终端")
-        terminalApplicationNameField.lineBreakMode = .byTruncatingMiddle
-        terminalApplicationNameField.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
-        )
-        let terminalChooseButton = NSButton(
-            title: "选择 App…",
-            target: nil,
-            action: nil
-        )
         let sizeLabel = NSTextField(labelWithString: "窗口像素")
         let multiplicationLabel = NSTextField(labelWithString: "×")
         let pixelsLabel = NSTextField(labelWithString: "px")
@@ -378,19 +339,19 @@ final class TouchBarSettingsWindowController: NSWindowController,
         idleOpacityDelayField.alignment = .right
         idleOpacityDelayField.integerValue = currentIdleOpacityDelaySeconds
 
+        let quotaSectionLabel = NSTextField(labelWithString: "用量订阅")
+        quotaSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        quotaProvidersStack.orientation = .vertical
+        quotaProvidersStack.alignment = .leading
+        quotaProvidersStack.spacing = 6
+        quotaProvidersStack.translatesAutoresizingMaskIntoConstraints = false
+
         let customAppsSectionLabel = NSTextField(labelWithString: "自定义 App")
         customAppsSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         customAppsStack.orientation = .vertical
         customAppsStack.alignment = .leading
         customAppsStack.spacing = 8
         customAppsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let recentsSectionLabel = NSTextField(labelWithString: "最近项目")
-        recentsSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        recentsStack.orientation = .vertical
-        recentsStack.alignment = .leading
-        recentsStack.spacing = 8
-        recentsStack.translatesAutoresizingMaskIntoConstraints = false
 
         let positionRow = NSStackView(views: [positionLabel, positionPopup])
         positionRow.orientation = .horizontal
@@ -423,25 +384,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         startupSceneRow.spacing = 12
         startupSceneRow.alignment = .centerY
 
-        let workspaceAutoCollapseRow = NSStackView(
-            views: [NSTextField(labelWithString: ""), workspaceAutoCollapseCheckbox]
-        )
-        workspaceAutoCollapseRow.orientation = .horizontal
-        workspaceAutoCollapseRow.spacing = 12
-        workspaceAutoCollapseRow.alignment = .centerY
-
-        let terminalApplicationRow = NSStackView(
-            views: [
-                terminalApplicationLabel,
-                terminalApplicationNameField,
-                terminalChooseButton,
-                terminalClearButton,
-            ]
-        )
-        terminalApplicationRow.orientation = .horizontal
-        terminalApplicationRow.spacing = 8
-        terminalApplicationRow.alignment = .centerY
-
         let sizeRow = NSStackView(
             views: [sizeLabel, widthField, multiplicationLabel, heightField, pixelsLabel]
         )
@@ -470,15 +412,13 @@ final class TouchBarSettingsWindowController: NSWindowController,
                 originRow,
                 switcherModeRow,
                 startupSceneRow,
-                workspaceAutoCollapseRow,
-                terminalApplicationRow,
                 sizeRow,
                 framesPerSecondRow,
                 idleOpacityDelayRow,
+                quotaSectionLabel,
+                quotaProvidersStack,
                 customAppsSectionLabel,
                 customAppsStack,
-                recentsSectionLabel,
-                recentsStack,
             ]
         )
         stack.orientation = .vertical
@@ -496,18 +436,12 @@ final class TouchBarSettingsWindowController: NSWindowController,
             originLabel.widthAnchor.constraint(equalToConstant: 72),
             switcherModeLabel.widthAnchor.constraint(equalToConstant: 72),
             startupSceneLabel.widthAnchor.constraint(equalToConstant: 72),
-            workspaceAutoCollapseRow.arrangedSubviews[0].widthAnchor.constraint(
-                equalToConstant: 72
-            ),
-            terminalApplicationLabel.widthAnchor.constraint(equalToConstant: 72),
             sizeLabel.widthAnchor.constraint(equalToConstant: 72),
             framesPerSecondLabel.widthAnchor.constraint(equalToConstant: 72),
             idleOpacityDelayLabel.widthAnchor.constraint(equalToConstant: 72),
             positionPopup.widthAnchor.constraint(equalToConstant: 180),
             switcherDisplayModePopup.widthAnchor.constraint(equalToConstant: 180),
             startupScenePopup.widthAnchor.constraint(equalToConstant: 180),
-            terminalApplicationNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
-            terminalApplicationRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             originXField.widthAnchor.constraint(equalToConstant: 70),
             originYField.widthAnchor.constraint(equalToConstant: 70),
             widthField.widthAnchor.constraint(equalToConstant: 90),
@@ -515,7 +449,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
             framesPerSecondField.widthAnchor.constraint(equalToConstant: 90),
             idleOpacityDelayField.widthAnchor.constraint(equalToConstant: 90),
             customAppsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            recentsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            quotaProvidersStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
 
         let initialContentRect = NSRect(x: 0, y: 0, width: 560, height: 720)
@@ -572,13 +506,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         switcherDisplayModePopup.action = #selector(switcherDisplayModeChanged(_:))
         startupScenePopup.target = self
         startupScenePopup.action = #selector(startupSceneChanged(_:))
-        workspaceAutoCollapseCheckbox.target = self
-        workspaceAutoCollapseCheckbox.action = #selector(workspaceAutoCollapseChanged(_:))
-        terminalChooseButton.target = self
-        terminalChooseButton.action = #selector(chooseTerminalApplication(_:))
-        terminalClearButton.target = self
-        terminalClearButton.action = #selector(clearTerminalApplication(_:))
-        updateTerminalApplicationDisplay()
         widthField.target = self
         widthField.action = #selector(pixelSizeChanged(_:))
         heightField.target = self
@@ -589,7 +516,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         idleOpacityDelayField.action = #selector(idleOpacityDelayChanged(_:))
         updateCustomOriginFieldsEnabled(for: currentPosition)
         rebuildCustomAppsRows()
-        rebuildRecentsRows()
+        reloadQuotaProviderRows(WorkspacePreferences.seenQuotaProviders)
     }
 
     @available(*, unavailable)
@@ -605,8 +532,117 @@ final class TouchBarSettingsWindowController: NSWindowController,
         rebuildCustomAppsRows()
     }
 
-    func reloadRecentsRows() {
-        rebuildRecentsRows()
+    func reloadQuotaProviderRows(_ choices: [QuotaProviderChoice]) {
+        quotaProviderChoices = choices
+        rebuildQuotaProviderRows()
+    }
+
+    private func rebuildQuotaProviderRows() {
+        for view in quotaProvidersStack.arrangedSubviews {
+            quotaProvidersStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        let hint = NSTextField(
+            labelWithString: "勾选的订阅会出现在用量区，可左右滑动查看。"
+        )
+        hint.textColor = .secondaryLabelColor
+        hint.font = .systemFont(ofSize: 11)
+        hint.lineBreakMode = .byWordWrapping
+        hint.maximumNumberOfLines = 2
+        quotaProvidersStack.addArrangedSubview(hint)
+
+        if quotaProviderChoices.isEmpty {
+            let empty = NSTextField(
+                labelWithString: "还没有读到订阅。请确认本机已安装 OpenUsage。"
+            )
+            empty.textColor = .secondaryLabelColor
+            empty.font = .systemFont(ofSize: 12)
+            quotaProvidersStack.addArrangedSubview(empty)
+            return
+        }
+
+        let showAll = NSButton(
+            title: "全部显示",
+            target: self,
+            action: #selector(showAllQuotaProviders)
+        )
+        showAll.bezelStyle = .rounded
+        let hideAll = NSButton(
+            title: "全部隐藏",
+            target: self,
+            action: #selector(hideAllQuotaProviders)
+        )
+        hideAll.bezelStyle = .rounded
+        let bulkRow = NSStackView(views: [showAll, hideAll])
+        bulkRow.orientation = .horizontal
+        bulkRow.spacing = 8
+        bulkRow.alignment = .centerY
+        quotaProvidersStack.addArrangedSubview(bulkRow)
+
+        for choice in quotaProviderChoices {
+            quotaProvidersStack.addArrangedSubview(
+                makeQuotaProviderRow(choice: choice)
+            )
+        }
+    }
+
+    private func makeQuotaProviderRow(choice: QuotaProviderChoice) -> NSView {
+        let iconView = NSImageView()
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.image = WorkspaceTouchBarStyle.providerIcon(for: choice.id)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        let check = NSButton(
+            checkboxWithTitle: choice.title,
+            target: self,
+            action: #selector(toggleQuotaProvider(_:))
+        )
+        check.identifier = NSUserInterfaceItemIdentifier(choice.id.rawValue)
+        check.state = WorkspacePreferences.isQuotaProviderVisible(choice.id)
+            ? .on
+            : .off
+        check.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let row = NSStackView(views: [iconView, check])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        return row
+    }
+
+    @objc
+    private func toggleQuotaProvider(_ sender: NSButton) {
+        guard let rawValue = sender.identifier?.rawValue else { return }
+        WorkspacePreferences.setQuotaProvider(
+            QuotaProviderID(rawValue),
+            visible: sender.state == .on
+        )
+        onQuotaVisibilityChanged()
+    }
+
+    @objc
+    private func showAllQuotaProviders() {
+        WorkspacePreferences.hiddenQuotaProviderIDs = []
+        rebuildQuotaProviderRows()
+        onQuotaVisibilityChanged()
+    }
+
+    @objc
+    private func hideAllQuotaProviders() {
+        WorkspacePreferences.hiddenQuotaProviderIDs = Set(
+            quotaProviderChoices.map(\.id.rawValue)
+        )
+        rebuildQuotaProviderRows()
+        onQuotaVisibilityChanged()
     }
 
     func updateCustomTopLeft(_ topLeft: CGPoint) {
@@ -652,41 +688,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         }
         let mode = WorkspaceSwitcherDisplayMode.allCases[itemIndex]
         onWorkspaceFloatingSwitcherChanged(mode == .floating)
-    }
-
-    @objc
-    private func workspaceAutoCollapseChanged(_ sender: NSButton) {
-        onWorkspaceAutoCollapseChanged(sender.state == .on)
-    }
-
-    @objc
-    private func chooseTerminalApplication(_ sender: NSButton) {
-        onPickTerminalApplication { [weak self] applicationURL in
-            guard let self, let applicationURL else { return }
-            terminalApplicationURL = applicationURL.standardizedFileURL
-            onTerminalApplicationChanged(terminalApplicationURL)
-            updateTerminalApplicationDisplay()
-        }
-    }
-
-    @objc
-    private func clearTerminalApplication(_ sender: NSButton) {
-        terminalApplicationURL = nil
-        onTerminalApplicationChanged(nil)
-        updateTerminalApplicationDisplay()
-    }
-
-    private func updateTerminalApplicationDisplay() {
-        if let terminalApplicationURL {
-            terminalApplicationNameField.stringValue =
-                terminalApplicationURL.lastPathComponent
-            terminalApplicationNameField.toolTip = terminalApplicationURL.path
-            terminalClearButton.isEnabled = true
-        } else {
-            terminalApplicationNameField.stringValue = "未选择"
-            terminalApplicationNameField.toolTip = nil
-            terminalClearButton.isEnabled = false
-        }
     }
 
     @objc
@@ -898,84 +899,5 @@ final class TouchBarSettingsWindowController: NSWindowController,
             "最多固定 \(CustomWorkspaceAppList.maxCount) 个。请先移除或替换其中一个。"
         alert.addButton(withTitle: "好")
         alert.beginSheetModal(for: window, completionHandler: nil)
-    }
-
-    private func rebuildRecentsRows() {
-        for view in recentsStack.arrangedSubviews {
-            recentsStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-
-        let projects = WorkspacePreferences.recentProjects
-        if projects.isEmpty {
-            let emptyHint = NSTextField(labelWithString: "还没有最近项目")
-            emptyHint.textColor = .secondaryLabelColor
-            recentsStack.addArrangedSubview(emptyHint)
-            return
-        }
-
-        for (index, project) in projects.enumerated() {
-            recentsStack.addArrangedSubview(
-                makeRecentProjectRow(project: project, index: index)
-            )
-        }
-        let clearButton = NSButton(
-            title: "清空最近项目",
-            target: self,
-            action: #selector(clearRecentProjects)
-        )
-        recentsStack.addArrangedSubview(clearButton)
-    }
-
-    private func makeRecentProjectRow(
-        project: WorkspaceRecentProject,
-        index: Int
-    ) -> NSView {
-        let nameLabel = NSTextField(labelWithString: project.url.lastPathComponent)
-        nameLabel.font = .systemFont(ofSize: 13)
-        nameLabel.lineBreakMode = .byTruncatingMiddle
-        nameLabel.toolTip = project.path
-        let pathLabel = NSTextField(labelWithString: project.path)
-        pathLabel.font = .systemFont(ofSize: 11)
-        pathLabel.textColor = .secondaryLabelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        let labels = NSStackView(views: [nameLabel, pathLabel])
-        labels.orientation = .vertical
-        labels.alignment = .leading
-        labels.spacing = 2
-        let removeButton = NSButton(
-            title: "移除",
-            target: self,
-            action: #selector(removeRecentProject(_:))
-        )
-        removeButton.tag = index
-        let row = NSStackView(views: [labels, removeButton])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            labels.widthAnchor.constraint(greaterThanOrEqualToConstant: 220)
-        ])
-        return row
-    }
-
-    @objc
-    private func removeRecentProject(_ sender: NSButton) {
-        let projects = WorkspacePreferences.recentProjects
-        guard projects.indices.contains(sender.tag) else { return }
-        WorkspacePreferences.recentProjects = WorkspaceRecentProjectList.removing(
-            path: projects[sender.tag].path,
-            from: projects
-        )
-        rebuildRecentsRows()
-        onRecentsChanged()
-    }
-
-    @objc
-    private func clearRecentProjects() {
-        WorkspacePreferences.recentProjects = []
-        rebuildRecentsRows()
-        onRecentsChanged()
     }
 }

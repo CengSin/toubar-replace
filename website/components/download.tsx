@@ -17,12 +17,11 @@ export function Download() {
           {SITE.mac}。用量区需要本机 OpenUsage。
         </p>
         <div className="mt-8 flex flex-col items-center gap-3">
-          <DownloadButton href={SITE.dmg} download>
+          <DownloadButton href={SITE.dmg}>
             下载应用
           </DownloadButton>
           <a
             href={SITE.pkg}
-            download
             className="text-[14px] text-muted underline decoration-line underline-offset-4 hover:text-ink"
           >
             或获取 PKG

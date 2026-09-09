@@ -22,7 +22,7 @@ export function Hero() {
             {SITE.description}
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <DownloadButton href={SITE.dmg} download>
+            <DownloadButton href={SITE.dmg}>
               下载应用
             </DownloadButton>
             <a

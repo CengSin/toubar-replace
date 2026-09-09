@@ -9,6 +9,7 @@ website/node_modules/
 website/.next/
 website/out/
 website/.qa/
+website/public/downloads/
 
 .DS_Store
 *.pem

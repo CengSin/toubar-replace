@@ -19,7 +19,7 @@ TOUBAR_VERSION=1.2.3 Packaging/build-app.sh
 GitHub Actions 工作流在仓库根目录 `.github/workflows/`（必须放在根目录，GitHub 不会读取 `ToubarReplace/.github`）：
 
 - `ci.yml`：push / PR 跑应用 smoke test（`macos-26`）和官网 lint + build
-- `package.yml`：打 tag `v*` 或在 Actions 里手动运行，产出 DMG / PKG；可选挂到 GitHub Release
+- `package.yml`：打 tag `v*` 或在 Actions 里手动运行，产出 DMG / PKG；挂到 GitHub Release 时同时上传带版本号的文件和稳定名 `ToubarReplace.dmg` / `ToubarReplace.pkg`（官网 `/releases/latest/download/` 用这两个名字）
 
 手动打包：仓库 **Actions → Package → Run workflow**。
 

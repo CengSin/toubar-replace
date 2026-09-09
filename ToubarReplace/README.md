@@ -30,7 +30,7 @@
 
 ### 从安装包安装（推荐）
 
-1. 从[官网](https://toubarreplace.z-agent.ccwu.cc)下载，或打开发布包中的 **DMG** / 运行 **PKG**。
+1. 从[官网](https://toubarreplace.z-agent.ccwu.cc)或 [GitHub Release](https://github.com/CengSin/toubar-replace/releases/latest) 下载 **DMG** / **PKG**。
 2. 将 `ToubarReplace.app` 拖入「应用程序」文件夹（PKG 会自动安装到该位置）。
 3. 首次打开：若系统提示来自未识别的开发者，可在「系统设置 → 隐私与安全性」中允许打开，或右键图标选择「打开」。
 4. 启动后，菜单栏会出现 ToubarReplace 图标（本应用为菜单栏应用，Dock 中默认不常驻）。

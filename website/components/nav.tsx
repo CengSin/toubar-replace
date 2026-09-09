@@ -46,7 +46,7 @@ export function Nav() {
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
           <span className="hidden lg:inline-flex">
-            <DownloadButton href={SITE.dmg} download>
+            <DownloadButton href={SITE.dmg}>
               下载应用
             </DownloadButton>
           </span>
@@ -76,7 +76,7 @@ export function Nav() {
               </a>
             ))}
           </nav>
-          <DownloadButton href={SITE.dmg} download className="mt-3 w-full">
+          <DownloadButton href={SITE.dmg} className="mt-3 w-full">
             下载应用
           </DownloadButton>
         </div>

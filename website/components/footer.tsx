@@ -15,7 +15,7 @@ export function Footer() {
             <a href="#compat" className="hover:text-ink">
               兼容
             </a>
-            <a href={SITE.dmg} download className="hover:text-ink">
+            <a href={SITE.dmg} className="hover:text-ink">
               下载应用
             </a>
           </nav>

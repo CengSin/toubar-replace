@@ -144,12 +144,12 @@ jobs:
         run: |
           set -euo pipefail
           files=()
-          for candidate in \
-            "dist/ToubarReplace-${VERSION}.dmg" \
-            "dist/ToubarReplace-${VERSION}.pkg"
-          do
-            if [[ -f "$candidate" ]]; then
-              files+=("$candidate")
+          for ext in dmg pkg; do
+            versioned="dist/ToubarReplace-${VERSION}.${ext}"
+            stable="dist/ToubarReplace.${ext}"
+            if [[ -f "$versioned" ]]; then
+              cp "$versioned" "$stable"
+              files+=("$versioned" "$stable")
             fi
           done
           if (( ${#files[@]} == 0 )); then

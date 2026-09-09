@@ -7,23 +7,23 @@ import { cn } from "@/lib/cn";
 
 const ITEMS = [
   {
-    id: "path",
-    title: "路径",
-    body: "Finder 在前台时读取当前窗口目录。也可以在栏上滑动最近项目，或手选文件夹。",
-    image: "/images/desk.jpg",
+    id: "quota",
+    title: "用量",
+    body: "读本机 OpenUsage，每个订阅三根竖柱：短时、周剩余、下次重置。多了左右滑，设置里勾选要展示的项。",
+    image: "/images/macro.jpg",
     position: "object-center",
   },
   {
-    id: "agents",
-    title: "Agent",
-    body: "Codex、Cursor、Claude Code、Grok Build。已安装的才会出现，点一下就在项目目录启动。",
-    image: "/images/macro.jpg",
+    id: "recommend",
+    title: "推荐",
+    body: "浪费风险最高的订阅会描边。点那一列打开对应应用，不用先去找图标。",
+    image: "/images/desk.jpg",
     position: "object-center",
   },
   {
     id: "apps",
     title: "应用",
-    body: "把三个最常用的 App 钉在栏上。点图标只负责打开，管理入口在设置里。",
+    body: "把最多五个常用 App 钉在栏上。点图标只负责打开，管理入口在设置里。",
     image: "/images/hero.jpg",
     position: "object-[center_20%]",
   },

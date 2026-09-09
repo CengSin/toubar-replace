@@ -1,8 +1,8 @@
 export const SITE = {
   name: "ToubarReplace",
-  tagline: "手指一点，打开 Agent",
+  tagline: "手指一点，看用量、开应用",
   description:
-    "把 MacBook Touch Bar 做成路径、Agent 与常用 App 的触控启动台。",
+    "把 MacBook Touch Bar 做成订阅用量与常用 App 的触控启动台。",
   version: "1.1.9",
   dmg: "/downloads/ToubarReplace.dmg",
   pkg: "/downloads/ToubarReplace.pkg",

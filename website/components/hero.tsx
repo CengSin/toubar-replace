@@ -24,7 +24,7 @@ export function Hero() {
           <h1 className="text-[42px] font-medium leading-[1.08] tracking-[-0.035em] text-white md:text-6xl">
             手指一点。
             <br />
-            打开 Agent。
+            看用量，开应用。
           </h1>
           <p className="mt-5 max-w-[34ch] text-[16px] leading-relaxed text-white/72 md:text-[17px]">
             {SITE.description}

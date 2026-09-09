@@ -39,7 +39,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         type: "image/jpeg",
-        alt: `${SITE.name}：手指一点，打开 Agent`,
+        alt: `${SITE.name}：手指一点，看用量、开应用`,
       },
     ],
   },

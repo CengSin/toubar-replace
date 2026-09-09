@@ -1,6 +1,6 @@
 # ToubarReplace 官网
 
-Mac 菜单栏应用 ToubarReplace 的产品官网：把 Touch Bar 做成 Agent 启动台。
+Mac 菜单栏应用 ToubarReplace 的产品官网：把 Touch Bar 做成订阅用量与常用 App 的触控启动台。
 
 线上地址：https://toubarreplace.z-agent.ccwu.cc
 

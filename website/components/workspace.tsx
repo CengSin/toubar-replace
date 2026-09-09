@@ -9,10 +9,10 @@ export function Workspace() {
     >
       <FadeIn className="mx-auto max-w-[720px]">
         <h2 className="text-4xl font-medium tracking-[-0.03em] text-ink md:text-5xl">
-          一条栏，三个区。
+          一条栏，两个区。
         </h2>
         <p className="mt-5 max-w-[42ch] text-[16px] leading-relaxed text-muted">
-          当前路径、已安装的 Agent、最多三个常用 App。全宽排开，点一下就启动。
+          左侧看订阅用量，右侧打开常用 App。订阅多了可以左右滑，点一下就启动。
         </p>
       </FadeIn>
       <FadeIn delay={0.1} className="mx-auto mt-12 max-w-5xl md:mt-16">

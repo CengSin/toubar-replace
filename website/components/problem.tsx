@@ -9,8 +9,8 @@ export function Problem() {
           Dock 太远了。
         </h2>
         <p className="mx-auto mt-5 max-w-[36ch] text-[16px] leading-relaxed text-muted">
-          Agent 就在键盘上方。点路径，再点 Codex、Cursor、Claude Code 或 Grok
-          Build。
+          用量和常用 App 就在键盘上方。点一下打开订阅对应的应用，不用去 Dock
+          里找图标。
         </p>
       </FadeIn>
       <FadeIn delay={0.08} className="mx-auto mt-12 max-w-4xl md:mt-16">

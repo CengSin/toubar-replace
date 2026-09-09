@@ -23,7 +23,8 @@ DerivedData/
 
 /.idea/
 
-/docs/
+/docs/**
+!/docs/README-developer.md
 
 AGENTS.md
 

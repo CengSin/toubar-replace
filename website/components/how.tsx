@@ -25,7 +25,7 @@ export function How() {
             </span>
           </h2>
           <p className="mt-6 max-w-[34ch] text-[16px] leading-relaxed text-muted">
-            装上应用，打开项目，在栏上点 Agent。手指不用离开主键盘。
+            装上应用，在栏上点订阅或常用 App。手指不用离开主键盘。
           </p>
           <a
             href="#workspace"

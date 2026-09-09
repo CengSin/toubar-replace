@@ -1,9 +1,13 @@
 "use client";
 
 import { Moon, Sun } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
-function readTheme(): "dark" | "light" {
+type Theme = "dark" | "light";
+
+const listeners = new Set<() => void>();
+
+function readTheme(): Theme {
   if (typeof document === "undefined") return "dark";
   const attr = document.documentElement.dataset.theme;
   if (attr === "light" || attr === "dark") return attr;
@@ -12,23 +16,35 @@ function readTheme(): "dark" | "light" {
     : "light";
 }
 
+function subscribe(onStoreChange: () => void) {
+  listeners.add(onStoreChange);
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    listeners.delete(onStoreChange);
+    media.removeEventListener("change", onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+function emitThemeChange() {
+  for (const listener of listeners) listener();
+}
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const theme = useSyncExternalStore(subscribe, readTheme, () => "dark");
 
-  useEffect(() => {
-    setTheme(readTheme());
-  }, []);
-
-  function toggle() {
-    const next = theme === "dark" ? "light" : "dark";
+  const toggle = useCallback(() => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     try {
       localStorage.setItem("toubar-theme", next);
     } catch {
       /* ignore */
     }
-    setTheme(next);
-  }
+    emitThemeChange();
+  }, [theme]);
 
   return (
     <button

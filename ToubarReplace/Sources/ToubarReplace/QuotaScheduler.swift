@@ -377,12 +377,13 @@ struct QuotaBoardState: Equatable {
             valueText: resetText,
             highlighted: false
         )
-        let tooltip = [
-            pool.title,
-            "5h \(fiveMetric.valueText)",
-            "周 \(weeklyMetric.valueText)",
-            "重置 \(resetMetric.valueText)",
-        ].joined(separator: " · ")
+        var tooltipParts = [pool.title]
+        if fiveMetric.isAvailable {
+            tooltipParts.append("5h \(fiveMetric.valueText)")
+        }
+        tooltipParts.append("周 \(weeklyMetric.valueText)")
+        tooltipParts.append("重置 \(resetMetric.valueText)")
+        let tooltip = tooltipParts.joined(separator: " · ")
         return QuotaProviderGroupState(
             provider: pool.provider,
             title: pool.title,

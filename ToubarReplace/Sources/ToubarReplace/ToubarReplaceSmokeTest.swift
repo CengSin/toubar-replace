@@ -264,6 +264,7 @@ enum ToubarReplaceSmokeTest {
                 && WorkspaceTouchBarLayout.slotVerticalInset == 3
                 && WorkspaceTouchBarLayout.trayTrailingSafeInset == 12
                 && WorkspaceTouchBarLayout.quotaGroupMinimumWidth == 144
+                && WorkspaceTouchBarLayout.quotaGroupTwoBarMinimumWidth == 104
                 && WorkspaceTouchBarLayout.quotaGroupSpacing == 4
                 && WorkspaceTouchBarStyle.controlHeight == 30
                 && WorkspaceTouchBarStyle.cornerRadius == 7
@@ -589,6 +590,48 @@ enum ToubarReplaceSmokeTest {
             "hidden quota providers must not appear on the board",
             failures: &failures
         )
+        let weeklyOnlyBoard = QuotaBoardState.from(
+            pools: [
+                QuotaPool(
+                    provider: .codex,
+                    windows: [
+                        QuotaWindow(
+                            kind: .weekly,
+                            remaining: 80,
+                            limit: 100,
+                            resetAt: now.addingTimeInterval(3 * 86400),
+                            cycle: 7 * 86400
+                        )
+                    ],
+                    fetchedAt: now
+                )
+            ],
+            now: now
+        )
+        expect(
+            weeklyOnlyBoard.groups.count == 1
+                && weeklyOnlyBoard.groups[0].fiveHour.isAvailable == false
+                && weeklyOnlyBoard.groups[0].weekly.valueText == "80%"
+                && !weeklyOnlyBoard.groups[0].tooltip.contains("5h"),
+            "pools without a 5h window must not expose a 5h quota metric",
+            failures: &failures
+        )
+        let weeklyOnlyPlate = QuotaPlateView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 30)
+        )
+        weeklyOnlyPlate.display(weeklyOnlyBoard)
+        weeklyOnlyPlate.layoutSubtreeIfNeeded()
+        expect(
+            weeklyOnlyPlate.groupViews.count == 1
+                && abs(
+                    weeklyOnlyPlate.groupViews[0].frame.width
+                        - WorkspaceTouchBarLayout.quotaGroupTwoBarMinimumWidth
+                ) < 1
+                && weeklyOnlyPlate.groupViews[0].frame.width
+                    < WorkspaceTouchBarLayout.quotaGroupMinimumWidth,
+            "a lone two-bar group must use the narrower card width",
+            failures: &failures
+        )
         let twoGroupFit = WorkspaceTouchBarLayout.quotaScrollArrangement(
             plateWidth: 360,
             groupCount: 2
@@ -596,8 +639,10 @@ enum ToubarReplaceSmokeTest {
         expect(
             twoGroupFit.needsScroll == false
                 && abs(twoGroupFit.contentWidth - 360) < 0.5
-                && twoGroupFit.groupWidth
-                    >= WorkspaceTouchBarLayout.quotaGroupMinimumWidth,
+                && twoGroupFit.groupWidths.count == 2
+                && twoGroupFit.groupWidths.allSatisfy {
+                    $0 >= WorkspaceTouchBarLayout.quotaGroupMinimumWidth
+                },
             "two three-bar groups that fit must fill the plate without scrolling",
             failures: &failures
         )
@@ -608,11 +653,28 @@ enum ToubarReplaceSmokeTest {
         expect(
             threeGroupScroll.needsScroll
                 && threeGroupScroll.contentWidth > 360
-                && abs(
-                    threeGroupScroll.groupWidth
-                        - WorkspaceTouchBarLayout.quotaGroupMinimumWidth
-                ) < 0.5,
+                && threeGroupScroll.groupWidths.allSatisfy {
+                    abs(
+                        $0 - WorkspaceTouchBarLayout.quotaGroupMinimumWidth
+                    ) < 0.5
+                },
             "three three-bar groups must keep a readable width and scroll in the 4/10 plate",
+            failures: &failures
+        )
+        let mixedWidths = WorkspaceTouchBarLayout.quotaScrollArrangement(
+            plateWidth: 360,
+            showsFiveHourPerGroup: [true, false]
+        )
+        expect(
+            mixedWidths.needsScroll == false
+                && mixedWidths.groupWidths.count == 2
+                && abs(
+                    mixedWidths.groupWidths[1]
+                        - WorkspaceTouchBarLayout.quotaGroupTwoBarMinimumWidth
+                ) < 0.5
+                && mixedWidths.groupWidths[0]
+                    > mixedWidths.groupWidths[1] + 0.5,
+            "two-bar groups must stay narrower than three-bar groups on the plate",
             failures: &failures
         )
         quotaPlate.display(boardState)
@@ -621,16 +683,23 @@ enum ToubarReplaceSmokeTest {
             quotaPlate.groupViews.count == 3
                 && quotaPlate.needsHorizontalScroll
                 && quotaPlate.contentWidth > quotaPlate.bounds.width
-                && quotaPlate.groupViews.allSatisfy {
-                    abs(
-                        $0.frame.width
-                            - WorkspaceTouchBarLayout.quotaGroupMinimumWidth
-                    ) < 1
-                        && $0.frame.maxX <= quotaPlate.contentWidth + 0.5
+                && quotaPlate.groupViews.allSatisfy { view in
+                    let expected = WorkspaceTouchBarLayout.quotaGroupMinimumWidth(
+                        showsFiveHour: view.state?.fiveHour.isAvailable == true
+                    )
+                    return abs(view.frame.width - expected) < 1
+                        && view.frame.maxX <= quotaPlate.contentWidth + 0.5
                 }
                 && (quotaPlate.groupViews.last?.frame.maxX ?? 0)
-                    > quotaPlate.bounds.width,
-            "quota plate must keep equal three-bar groups and scroll overflow",
+                    > quotaPlate.bounds.width
+                && (
+                    quotaPlate.groupViews.first {
+                        $0.state?.provider == .codex
+                    }?.frame.width
+                        ?? 0
+                )
+                    < WorkspaceTouchBarLayout.quotaGroupMinimumWidth,
+            "quota plate must size two-bar cards narrower and scroll overflow",
             failures: &failures
         )
         openedProvider = nil

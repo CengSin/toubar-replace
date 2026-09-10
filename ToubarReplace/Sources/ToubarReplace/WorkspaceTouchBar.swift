@@ -83,9 +83,15 @@ enum WorkspaceTouchBarLayout {
     /// by system Function Row chrome.
     static let trayTrailingSafeInset: CGFloat = 12
 
-    /// Equal three-bar groups keep at least this width; overflow scrolls.
+    /// Three-bar groups keep at least this width; overflow scrolls.
     static let quotaGroupMinimumWidth: CGFloat = 144
+    /// Two-bar groups (no 5h window) stay narrower than three-bar ones.
+    static let quotaGroupTwoBarMinimumWidth: CGFloat = 104
     static let quotaGroupSpacing: CGFloat = 4
+
+    static func quotaGroupMinimumWidth(showsFiveHour: Bool) -> CGFloat {
+        showsFiveHour ? quotaGroupMinimumWidth : quotaGroupTwoBarMinimumWidth
+    }
 
     /// Split tray into quota | apps at a fixed 4|6 share.
     static func trayZoneFrames(
@@ -218,28 +224,47 @@ enum WorkspaceTouchBarLayout {
         region.insetBy(dx: zoneContentInset, dy: 0)
     }
 
-    /// Equal three-bar columns. If they would shrink below
-    /// ``quotaGroupMinimumWidth``, keep that width and scroll horizontally.
+    /// Per-group widths. Two-bar cards use a smaller minimum than three-bar
+    /// cards. Leftover plate width goes to three-bar groups first so two-bar
+    /// ones stay compact; if every group is two-bar, they share leftover equally.
+    static func quotaScrollArrangement(
+        plateWidth: CGFloat,
+        showsFiveHourPerGroup: [Bool]
+    ) -> (groupWidths: [CGFloat], contentWidth: CGFloat, needsScroll: Bool) {
+        let width = max(plateWidth, 0)
+        let flags = showsFiveHourPerGroup
+        if flags.isEmpty {
+            return ([], width, false)
+        }
+        var widths = flags.map { quotaGroupMinimumWidth(showsFiveHour: $0) }
+        let spacing = CGFloat(flags.count - 1) * quotaGroupSpacing
+        let contentMin = widths.reduce(0, +) + spacing
+        if contentMin > width + 0.5 {
+            return (widths, contentMin, true)
+        }
+        // Two-bar cards keep their compact width. Only three-bar cards absorb
+        // leftover plate space; if every card is two-bar, pack left.
+        let threeBarIndices = flags.indices.filter { flags[$0] }
+        guard !threeBarIndices.isEmpty else {
+            return (widths, contentMin, false)
+        }
+        let leftover = width - contentMin
+        let share = leftover / CGFloat(threeBarIndices.count)
+        for index in threeBarIndices {
+            widths[index] += share
+        }
+        return (widths, width, false)
+    }
+
+    /// Convenience when every group shows three bars.
     static func quotaScrollArrangement(
         plateWidth: CGFloat,
         groupCount: Int
-    ) -> (groupWidth: CGFloat, contentWidth: CGFloat, needsScroll: Bool) {
-        let width = max(plateWidth, 0)
-        let count = max(groupCount, 0)
-        if count == 0 {
-            return (0, width, false)
-        }
-        let equal = equalSlotWidth(
-            regionWidth: width,
-            slotCount: count,
-            spacing: quotaGroupSpacing
+    ) -> (groupWidths: [CGFloat], contentWidth: CGFloat, needsScroll: Bool) {
+        quotaScrollArrangement(
+            plateWidth: plateWidth,
+            showsFiveHourPerGroup: Array(repeating: true, count: max(groupCount, 0))
         )
-        if equal >= quotaGroupMinimumWidth {
-            return (equal, width, false)
-        }
-        let content = CGFloat(count) * quotaGroupMinimumWidth
-            + CGFloat(count - 1) * quotaGroupSpacing
-        return (quotaGroupMinimumWidth, content, content > width + 0.5)
     }
 
     /// Tray-only regions (quota | apps). Prefer `stripFrames` when
@@ -990,12 +1015,16 @@ final class QuotaProviderGroupView: NSView {
     func display(_ state: QuotaProviderGroupState) {
         self.state = state
         iconView.image = WorkspaceTouchBarStyle.providerIcon(for: state.provider)
-        fiveHourBar.display(
-            state.fiveHour,
-            fillColor: state.fiveHour.isHighlighted
-                ? WorkspaceTouchBarStyle.amberAccent
-                : .white
-        )
+        // No 5h window → hide the bar entirely (do not show "—").
+        fiveHourBar.isHidden = !state.fiveHour.isAvailable
+        if state.fiveHour.isAvailable {
+            fiveHourBar.display(
+                state.fiveHour,
+                fillColor: state.fiveHour.isHighlighted
+                    ? WorkspaceTouchBarStyle.amberAccent
+                    : .white
+            )
+        }
         weeklyBar.display(
             state.weekly,
             fillColor: state.weekly.isHighlighted
@@ -1030,22 +1059,45 @@ final class QuotaProviderGroupView: NSView {
         )
         let barsX = iconView.frame.maxX + 4
         let barsWidth = max(bounds.width - barsX - 4, 24)
-        let barWidth = floor(barsWidth / 3)
+        let showFiveHour = state?.fiveHour.isAvailable == true
+        let barCount: CGFloat = showFiveHour ? 3 : 2
+        let barWidth = floor(barsWidth / barCount)
         let barHeight = max(bounds.height - 4, 16)
         let barY = floor((bounds.height - barHeight) / 2)
-        fiveHourBar.frame = NSRect(x: barsX, y: barY, width: barWidth, height: barHeight)
-        weeklyBar.frame = NSRect(
-            x: barsX + barWidth,
-            y: barY,
-            width: barWidth,
-            height: barHeight
-        )
-        resetBar.frame = NSRect(
-            x: barsX + barWidth * 2,
-            y: barY,
-            width: max(barsWidth - barWidth * 2, 8),
-            height: barHeight
-        )
+        if showFiveHour {
+            fiveHourBar.frame = NSRect(
+                x: barsX,
+                y: barY,
+                width: barWidth,
+                height: barHeight
+            )
+            weeklyBar.frame = NSRect(
+                x: barsX + barWidth,
+                y: barY,
+                width: barWidth,
+                height: barHeight
+            )
+            resetBar.frame = NSRect(
+                x: barsX + barWidth * 2,
+                y: barY,
+                width: max(barsWidth - barWidth * 2, 8),
+                height: barHeight
+            )
+        } else {
+            fiveHourBar.frame = .zero
+            weeklyBar.frame = NSRect(
+                x: barsX,
+                y: barY,
+                width: barWidth,
+                height: barHeight
+            )
+            resetBar.frame = NSRect(
+                x: barsX + barWidth,
+                y: barY,
+                width: max(barsWidth - barWidth, 8),
+                height: barHeight
+            )
+        }
     }
 
     private func refreshChrome() {
@@ -1157,9 +1209,12 @@ final class QuotaPlateView: NSView {
             return
         }
         let previousOffset = scrollView.contentView.bounds.origin.x
+        let showsFiveHour = groupViews.map {
+            $0.state?.fiveHour.isAvailable != false
+        }
         let arrangement = WorkspaceTouchBarLayout.quotaScrollArrangement(
             plateWidth: bounds.width,
-            groupCount: groupViews.count
+            showsFiveHourPerGroup: showsFiveHour
         )
         contentWidth = arrangement.contentWidth
         needsHorizontalScroll = arrangement.needsScroll
@@ -1172,18 +1227,19 @@ final class QuotaPlateView: NSView {
             width: arrangement.contentWidth,
             height: bounds.height
         )
-        let slots = WorkspaceTouchBarLayout.slotFrames(
-            in: NSRect(
-                x: 0,
+        var x: CGFloat = 0
+        let spacing = WorkspaceTouchBarLayout.quotaGroupSpacing
+        for (index, view) in groupViews.enumerated() {
+            let groupWidth = index < arrangement.groupWidths.count
+                ? arrangement.groupWidths[index]
+                : WorkspaceTouchBarLayout.quotaGroupMinimumWidth
+            view.frame = NSRect(
+                x: x,
                 y: 0,
-                width: arrangement.contentWidth,
+                width: groupWidth,
                 height: bounds.height
-            ),
-            slotCount: groupViews.count,
-            spacing: WorkspaceTouchBarLayout.quotaGroupSpacing
-        )
-        for (index, view) in groupViews.enumerated() where index < slots.count {
-            view.frame = slots[index]
+            )
+            x += groupWidth + spacing
         }
         let maxOffset = max(arrangement.contentWidth - bounds.width, 0)
         scrollView.contentView.scroll(

@@ -125,6 +125,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let originYField: NSTextField
     private let switcherDisplayModePopup: NSPopUpButton
     private let startupScenePopup: NSPopUpButton
+    private let quotaDisplayStylePopup: NSPopUpButton
     private let widthField: NSTextField
     private let heightField: NSTextField
     private let customAppsStack: NSStackView
@@ -138,6 +139,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let onPickApplication: (@escaping (URL?) -> Void) -> Void
     private let onCustomAppsChanged: () -> Void
     private let onQuotaVisibilityChanged: () -> Void
+    private let onQuotaDisplayStyleChanged: () -> Void
     private let onWindowClosed: () -> Void
 
     init(
@@ -154,6 +156,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         onPickApplication: @escaping (@escaping (URL?) -> Void) -> Void,
         onCustomAppsChanged: @escaping () -> Void,
         onQuotaVisibilityChanged: @escaping () -> Void,
+        onQuotaDisplayStyleChanged: @escaping () -> Void,
         onWindowClosed: @escaping () -> Void
     ) {
         self.positionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -161,6 +164,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.originYField = NSTextField()
         self.switcherDisplayModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.startupScenePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        self.quotaDisplayStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.widthField = NSTextField()
         self.heightField = NSTextField()
         self.customAppsStack = NSStackView()
@@ -173,6 +177,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.onPickApplication = onPickApplication
         self.onCustomAppsChanged = onCustomAppsChanged
         self.onQuotaVisibilityChanged = onQuotaVisibilityChanged
+        self.onQuotaDisplayStyleChanged = onQuotaDisplayStyleChanged
         self.onWindowClosed = onWindowClosed
 
         let contentView = SettingsDocumentView()
@@ -250,6 +255,16 @@ final class TouchBarSettingsWindowController: NSWindowController,
 
         let quotaSectionLabel = NSTextField(labelWithString: "用量订阅")
         quotaSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        let quotaDisplayStyleLabel = NSTextField(labelWithString: "额度样式")
+        quotaDisplayStylePopup.addItems(
+            withTitles: QuotaMetricDisplayStyle.allCases.map(\.title)
+        )
+        let currentQuotaStyle = WorkspacePreferences.quotaMetricDisplayStyle
+        quotaDisplayStylePopup.selectItem(
+            at: QuotaMetricDisplayStyle.allCases.firstIndex(
+                of: currentQuotaStyle
+            ) ?? 0
+        )
         quotaProvidersStack.orientation = .vertical
         quotaProvidersStack.alignment = .leading
         quotaProvidersStack.spacing = 6
@@ -293,6 +308,13 @@ final class TouchBarSettingsWindowController: NSWindowController,
         startupSceneRow.spacing = 12
         startupSceneRow.alignment = .centerY
 
+        let quotaDisplayStyleRow = NSStackView(
+            views: [quotaDisplayStyleLabel, quotaDisplayStylePopup]
+        )
+        quotaDisplayStyleRow.orientation = .horizontal
+        quotaDisplayStyleRow.spacing = 12
+        quotaDisplayStyleRow.alignment = .centerY
+
         let sizeRow = NSStackView(
             views: [sizeLabel, widthField, multiplicationLabel, heightField, pixelsLabel]
         )
@@ -309,6 +331,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
                 startupSceneRow,
                 sizeRow,
                 quotaSectionLabel,
+                quotaDisplayStyleRow,
                 quotaProvidersStack,
                 customAppsSectionLabel,
                 customAppsStack,
@@ -329,10 +352,12 @@ final class TouchBarSettingsWindowController: NSWindowController,
             originLabel.widthAnchor.constraint(equalToConstant: 72),
             switcherModeLabel.widthAnchor.constraint(equalToConstant: 72),
             startupSceneLabel.widthAnchor.constraint(equalToConstant: 72),
+            quotaDisplayStyleLabel.widthAnchor.constraint(equalToConstant: 72),
             sizeLabel.widthAnchor.constraint(equalToConstant: 72),
             positionPopup.widthAnchor.constraint(equalToConstant: 180),
             switcherDisplayModePopup.widthAnchor.constraint(equalToConstant: 180),
             startupScenePopup.widthAnchor.constraint(equalToConstant: 180),
+            quotaDisplayStylePopup.widthAnchor.constraint(equalToConstant: 180),
             originXField.widthAnchor.constraint(equalToConstant: 70),
             originYField.widthAnchor.constraint(equalToConstant: 70),
             widthField.widthAnchor.constraint(equalToConstant: 90),
@@ -395,6 +420,8 @@ final class TouchBarSettingsWindowController: NSWindowController,
         switcherDisplayModePopup.action = #selector(switcherDisplayModeChanged(_:))
         startupScenePopup.target = self
         startupScenePopup.action = #selector(startupSceneChanged(_:))
+        quotaDisplayStylePopup.target = self
+        quotaDisplayStylePopup.action = #selector(quotaDisplayStyleChanged(_:))
         widthField.target = self
         widthField.action = #selector(pixelSizeChanged(_:))
         heightField.target = self
@@ -563,6 +590,15 @@ final class TouchBarSettingsWindowController: NSWindowController,
             return
         }
         onWorkspaceStartupSceneChanged(WorkspaceStartupScene.allCases[itemIndex])
+    }
+
+    @objc
+    private func quotaDisplayStyleChanged(_ sender: NSPopUpButton) {
+        let styles = QuotaMetricDisplayStyle.allCases
+        guard styles.indices.contains(sender.indexOfSelectedItem) else { return }
+        WorkspacePreferences.quotaMetricDisplayStyle =
+            styles[sender.indexOfSelectedItem]
+        onQuotaDisplayStyleChanged()
     }
 
     @objc

@@ -632,6 +632,21 @@ enum ToubarReplaceSmokeTest {
             "a lone two-bar group must use the narrower card width",
             failures: &failures
         )
+        expect(
+            QuotaMetricDisplayStyle.allCases.map(\.rawValue)
+                == ["bars", "percent"]
+                && WorkspacePreferences.quotaMetricDisplayStyle == .bars,
+            "quota metric display style defaults to bars",
+            failures: &failures
+        )
+        let previousStyle = WorkspacePreferences.quotaMetricDisplayStyle
+        WorkspacePreferences.quotaMetricDisplayStyle = .percent
+        expect(
+            WorkspacePreferences.quotaMetricDisplayStyle == .percent,
+            "quota metric display style must persist percent mode",
+            failures: &failures
+        )
+        WorkspacePreferences.quotaMetricDisplayStyle = previousStyle
         let twoGroupFit = WorkspaceTouchBarLayout.quotaScrollArrangement(
             plateWidth: 360,
             groupCount: 2

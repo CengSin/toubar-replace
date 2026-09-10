@@ -15,6 +15,18 @@ enum WorkspaceSwitcherDisplayMode: String, CaseIterable {
     }
 }
 
+enum QuotaMetricDisplayStyle: String, CaseIterable {
+    case bars
+    case percent
+
+    var title: String {
+        switch self {
+        case .bars: return "柱状图"
+        case .percent: return "百分比"
+        }
+    }
+}
+
 enum WorkspaceStartupScene: String, CaseIterable {
     case workspace
     case mirror
@@ -101,6 +113,28 @@ enum WorkspacePreferences {
         "ToubarReplace.workspace.hiddenQuotaProviders"
     private static let seenQuotaProvidersKey =
         "ToubarReplace.workspace.seenQuotaProviders"
+    private static let quotaMetricDisplayStyleKey =
+        "ToubarReplace.workspace.quotaMetricDisplayStyle"
+
+    /// How each quota metric is drawn on the plate: vertical bars or percent text.
+    static var quotaMetricDisplayStyle: QuotaMetricDisplayStyle {
+        get {
+            if let raw = UserDefaults.standard.string(
+                forKey: quotaMetricDisplayStyleKey
+            ),
+                let style = QuotaMetricDisplayStyle(rawValue: raw)
+            {
+                return style
+            }
+            return .bars
+        }
+        set {
+            UserDefaults.standard.set(
+                newValue.rawValue,
+                forKey: quotaMetricDisplayStyleKey
+            )
+        }
+    }
 
     /// Provider IDs the user hid in Settings. Missing key / empty = show all.
     static var hiddenQuotaProviderIDs: Set<String> {

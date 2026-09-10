@@ -859,11 +859,12 @@ final class WorkspaceCustomAppsView: NSView {
     }
 }
 
-/// One vertical remaining-quota / reset bar with a short caption underneath.
+/// One quota metric: vertical bar or percent text, with a short caption.
 @MainActor
 final class QuotaVerticalBarView: NSView {
     private let track = NSView()
     private let fill = NSView()
+    private let valueLabel = NSTextField(labelWithString: "")
     private let caption = NSTextField(labelWithString: "")
     private var metric = QuotaBarMetric(
         ratio: nil,
@@ -872,6 +873,7 @@ final class QuotaVerticalBarView: NSView {
         isHighlighted: false
     )
     private var fillColor = NSColor.white
+    private var style: QuotaMetricDisplayStyle = .bars
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -882,6 +884,16 @@ final class QuotaVerticalBarView: NSView {
         fill.wantsLayer = true
         fill.layer?.cornerRadius = 2
         track.addSubview(fill)
+        valueLabel.font = WorkspaceTouchBarStyle.secondaryFont
+        valueLabel.textColor = WorkspaceTouchBarStyle.primaryTextColor
+        valueLabel.isBezeled = false
+        valueLabel.drawsBackground = false
+        valueLabel.isEditable = false
+        valueLabel.isSelectable = false
+        valueLabel.alignment = .center
+        valueLabel.lineBreakMode = .byClipping
+        valueLabel.isHidden = true
+        addSubview(valueLabel)
         caption.font = WorkspaceTouchBarStyle.microFont
         caption.textColor = WorkspaceTouchBarStyle.secondaryTextColor
         caption.isBezeled = false
@@ -898,15 +910,27 @@ final class QuotaVerticalBarView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func display(_ metric: QuotaBarMetric, fillColor: NSColor) {
+    func display(
+        _ metric: QuotaBarMetric,
+        fillColor: NSColor,
+        style: QuotaMetricDisplayStyle = .bars
+    ) {
         self.metric = metric
         self.fillColor = fillColor
+        self.style = style
         caption.stringValue = metric.caption
         caption.textColor = metric.isHighlighted
             ? WorkspaceTouchBarStyle.amberAccent
             : WorkspaceTouchBarStyle.secondaryTextColor
+        valueLabel.stringValue = metric.valueText
+        valueLabel.textColor = metric.isHighlighted
+            ? WorkspaceTouchBarStyle.amberAccent
+            : WorkspaceTouchBarStyle.primaryTextColor
         fill.layer?.backgroundColor = fillColor.cgColor
-        fill.isHidden = false
+        let showBars = style == .bars
+        track.isHidden = !showBars
+        fill.isHidden = !showBars
+        valueLabel.isHidden = showBars
         needsLayout = true
     }
 
@@ -920,6 +944,22 @@ final class QuotaVerticalBarView: NSView {
         guard bounds.width > 1, bounds.height > 1 else { return }
 
         let captionHeight: CGFloat = 10
+        caption.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: captionHeight
+        )
+        if style == .percent {
+            valueLabel.frame = NSRect(
+                x: 0,
+                y: captionHeight,
+                width: bounds.width,
+                height: max(bounds.height - captionHeight, 12)
+            )
+            return
+        }
+
         let trackWidth: CGFloat = min(max(floor(bounds.width * 0.42), 6), 10)
         let trackHeight = max(bounds.height - captionHeight - 1, 8)
         let trackX = floor((bounds.width - trackWidth) / 2)
@@ -943,12 +983,6 @@ final class QuotaVerticalBarView: NSView {
             y: 0,
             width: trackWidth,
             height: fillHeight
-        )
-        caption.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: bounds.width,
-            height: captionHeight
         )
     }
 }
@@ -1015,6 +1049,7 @@ final class QuotaProviderGroupView: NSView {
     func display(_ state: QuotaProviderGroupState) {
         self.state = state
         iconView.image = WorkspaceTouchBarStyle.providerIcon(for: state.provider)
+        let style = WorkspacePreferences.quotaMetricDisplayStyle
         // No 5h window → hide the bar entirely (do not show "—").
         fiveHourBar.isHidden = !state.fiveHour.isAvailable
         if state.fiveHour.isAvailable {
@@ -1022,18 +1057,21 @@ final class QuotaProviderGroupView: NSView {
                 state.fiveHour,
                 fillColor: state.fiveHour.isHighlighted
                     ? WorkspaceTouchBarStyle.amberAccent
-                    : .white
+                    : .white,
+                style: style
             )
         }
         weeklyBar.display(
             state.weekly,
             fillColor: state.weekly.isHighlighted
                 ? WorkspaceTouchBarStyle.amberAccent
-                : .white
+                : .white,
+            style: style
         )
         resetBar.display(
             state.reset,
-            fillColor: WorkspaceTouchBarStyle.resetBarColor
+            fillColor: WorkspaceTouchBarStyle.resetBarColor,
+            style: style
         )
         toolTip = state.tooltip
         setAccessibilityLabel("打开 \(state.title)")

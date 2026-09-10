@@ -68,10 +68,10 @@ enum WorkspaceTouchBarLayout {
         )
     }
 
-    /// Design grid on the tray: Quota 4/10 | Apps 6/10.
+    /// Design grid on the tray: Quota 7/10 | Apps 3/10.
     static let totalUnits = 10
-    static let quotaUnits = 4
-    static let appsUnits = 6
+    static let quotaUnits = 7
+    static let appsUnits = 3
 
     /// Hairline between zones on the continuous tray.
     static let zoneDividerWidth: CGFloat = 1
@@ -93,13 +93,14 @@ enum WorkspaceTouchBarLayout {
         showsFiveHour ? quotaGroupMinimumWidth : quotaGroupTwoBarMinimumWidth
     }
 
-    /// Split tray into quota | apps at a fixed 4|6 share.
+    /// Split tray into quota | apps at a user-configured share.
     static func trayZoneFrames(
-        tray: NSRect
+        tray: NSRect,
+        quotaShare: Double = WorkspacePreferences.quotaShare
     ) -> (quota: NSRect, apps: NSRect) {
         let usableWidth = max(tray.width - trayTrailingSafeInset, 0)
         let quotaWidth = floor(
-            usableWidth * CGFloat(quotaUnits) / CGFloat(totalUnits)
+            usableWidth * CGFloat(WorkspacePreferences.clampedQuotaShare(quotaShare))
         )
         let appsWidth = max(usableWidth - quotaWidth, 0)
         let quota = NSRect(
@@ -284,24 +285,24 @@ enum WorkspaceTouchBarStyle {
     static let canvasInset: CGFloat = 4
     /// Continuous tray under the 10-unit strip (design v2 soft surface).
     static let trayBackground = NSColor(
-        red: 32 / 255,
-        green: 30 / 255,
-        blue: 34 / 255,
+        red: 18 / 255,
+        green: 22 / 255,
+        blue: 29 / 255,
         alpha: 1
     )
     /// Quota plate + equal icon slots (same chrome weight).
     static let itemBackground = NSColor(
-        red: 48 / 255,
-        green: 45 / 255,
-        blue: 50 / 255,
+        red: 32 / 255,
+        green: 39 / 255,
+        blue: 49 / 255,
         alpha: 1
     )
     /// Pressed chrome for tray slots (quota / apps / switcher).
     static let itemHighlightedBackground = NSColor.white.withAlphaComponent(0.22)
     static let itemHighlightBorderColor = NSColor.white.withAlphaComponent(0.32)
-    static let dividerColor = NSColor.white.withAlphaComponent(0.19)
+    static let dividerColor = NSColor.white.withAlphaComponent(0.10)
     static let primaryTextColor = NSColor.white
-    static let secondaryTextColor = NSColor.white.withAlphaComponent(0.72)
+    static let secondaryTextColor = NSColor.white.withAlphaComponent(0.55)
     static let amberAccent = NSColor(
         red: 232 / 255,
         green: 160 / 255,
@@ -325,6 +326,13 @@ enum WorkspaceTouchBarStyle {
     @MainActor
     static var secondaryFont: NSFont {
         NSFont.systemFont(ofSize: 10, weight: .regular)
+    }
+
+    @MainActor
+    static var quotaValueFont: NSFont {
+        let base = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        return base.fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: 11) } ?? base
     }
 
     @MainActor
@@ -808,11 +816,13 @@ final class WorkspaceCustomAppsView: NSView {
         superview?.needsLayout = true
     }
 
+    var slotFramesForValidation: [NSRect] { slotViews.map(\.frame) }
+
     var settingsButtonFrame: NSRect {
         settingsButton.isHidden ? .zero : settingsButton.frame
     }
 
-    /// Spread controls evenly across the apps zone (6/10 of the bar).
+    /// Spread controls evenly across the configured apps zone.
     /// `region` must be in this view's coordinate space (usually `bounds`).
     func layoutEqualSlots(in region: NSRect) {
         guard region.width > 1, region.height > 1, !slotViews.isEmpty else {
@@ -884,7 +894,7 @@ final class QuotaVerticalBarView: NSView {
         fill.wantsLayer = true
         fill.layer?.cornerRadius = 2
         track.addSubview(fill)
-        valueLabel.font = WorkspaceTouchBarStyle.secondaryFont
+        valueLabel.font = WorkspaceTouchBarStyle.quotaValueFont
         valueLabel.textColor = WorkspaceTouchBarStyle.primaryTextColor
         valueLabel.isBezeled = false
         valueLabel.drawsBackground = false
@@ -913,7 +923,8 @@ final class QuotaVerticalBarView: NSView {
     func display(
         _ metric: QuotaBarMetric,
         fillColor: NSColor,
-        style: QuotaMetricDisplayStyle = .bars
+        style: QuotaMetricDisplayStyle = .bars,
+        textColor: NSColor? = nil
     ) {
         self.metric = metric
         self.fillColor = fillColor
@@ -925,7 +936,23 @@ final class QuotaVerticalBarView: NSView {
         valueLabel.stringValue = metric.valueText
         valueLabel.textColor = metric.isHighlighted
             ? WorkspaceTouchBarStyle.amberAccent
-            : WorkspaceTouchBarStyle.primaryTextColor
+            : (metric.valueText != "—" ? (textColor ?? fillColor) : WorkspaceTouchBarStyle.secondaryTextColor)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let text = NSMutableAttributedString(string: metric.valueText, attributes: [
+            .paragraphStyle: paragraph,
+            .font: WorkspaceTouchBarStyle.quotaValueFont,
+            .foregroundColor: valueLabel.textColor ?? .white,
+        ])
+        for (index, character) in metric.valueText.utf16.enumerated() {
+            if character == 37 || character == 100 || character == 104 || character == 109 {
+                text.addAttributes([
+                    .font: NSFont.systemFont(ofSize: 9, weight: .regular),
+                    .foregroundColor: (valueLabel.textColor ?? .white).withAlphaComponent(0.7),
+                ], range: NSRange(location: index, length: 1))
+            }
+        }
+        valueLabel.attributedStringValue = text
         fill.layer?.backgroundColor = fillColor.cgColor
         let showBars = style == .bars
         track.isHidden = !showBars
@@ -1050,6 +1077,19 @@ final class QuotaProviderGroupView: NSView {
         self.state = state
         iconView.image = WorkspaceTouchBarStyle.providerIcon(for: state.provider)
         let style = WorkspacePreferences.quotaMetricDisplayStyle
+        weeklyBar.isHidden = false
+        resetBar.isHidden = state.balance != nil
+        if let balance = state.balance {
+            fiveHourBar.isHidden = true
+            weeklyBar.display(QuotaBarMetric(ratio: nil, caption: balance.caption,
+                                             valueText: balance.valueText, isHighlighted: false),
+                              fillColor: WorkspaceTouchBarStyle.resetBarColor, style: .percent)
+            toolTip = state.tooltip
+            setAccessibilityLabel("打开 \(state.title)，\(balance.caption) \(balance.valueText)")
+            refreshChrome()
+            needsLayout = true
+            return
+        }
         // No 5h window → hide the bar entirely (do not show "—").
         fiveHourBar.isHidden = !state.fiveHour.isAvailable
         if state.fiveHour.isAvailable {
@@ -1071,7 +1111,8 @@ final class QuotaProviderGroupView: NSView {
         resetBar.display(
             state.reset,
             fillColor: WorkspaceTouchBarStyle.resetBarColor,
-            style: style
+            style: style,
+            textColor: WorkspaceTouchBarStyle.primaryTextColor
         )
         toolTip = state.tooltip
         setAccessibilityLabel("打开 \(state.title)")
@@ -1102,6 +1143,12 @@ final class QuotaProviderGroupView: NSView {
         let barWidth = floor(barsWidth / barCount)
         let barHeight = max(bounds.height - 4, 16)
         let barY = floor((bounds.height - barHeight) / 2)
+        if state?.balance != nil {
+            fiveHourBar.frame = .zero
+            resetBar.frame = .zero
+            weeklyBar.frame = NSRect(x: barsX, y: barY, width: barsWidth, height: barHeight)
+            return
+        }
         if showFiveHour {
             fiveHourBar.frame = NSRect(
                 x: barsX,
@@ -1411,6 +1458,10 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
 
         reloadCustomAppsFromPreferences()
         showQuota(.empty)
+    }
+
+    func reloadRegionLayout() {
+        contentView.setNeedsRegionLayout()
     }
 
     func reloadCustomAppsFromPreferences() {

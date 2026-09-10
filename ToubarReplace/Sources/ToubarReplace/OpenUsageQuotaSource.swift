@@ -18,6 +18,7 @@ struct OpenUsageResourceSnapshot: Equatable, Sendable {
     var used: Double?
     var resetsAt: Date?
     var windowSeconds: Double?
+    var available: Double? = nil
 }
 
 enum OpenUsageLimitsMapper {
@@ -102,7 +103,8 @@ enum OpenUsageLimitsMapper {
                 resetsAt: OpenUsageDateParser.date(
                     from: resource["resetsAt"] as? String
                 ),
-                windowSeconds: double(resource["windowSeconds"])
+                windowSeconds: double(resource["windowSeconds"]),
+                available: double(resource["available"])
             )
         }
         return OpenUsageProviderSnapshot(
@@ -120,6 +122,25 @@ enum OpenUsageLimitsMapper {
         excludingKeys: Set<String>,
         now: Date
     ) -> QuotaPool? {
+        let hasConsumption = snapshot.resources.values.contains { $0.kind == "consumption" }
+        if provider == .openrouter || !hasConsumption {
+            let balanceResource = snapshot.resources.keys.sorted().compactMap { snapshot.resources[$0] }
+                .first { $0.kind == "balance" && ($0.available ?? $0.remaining)?.isFinite == true }
+            var balance: QuotaBalance?
+            if let resource = balanceResource, let amount = resource.available ?? resource.remaining {
+                balance = QuotaBalance(amount: amount, unit: resource.unit ?? "", caption: "余额")
+            } else if provider == .openrouter, let credits = snapshot.resources["credits"] {
+                let amount = credits.remaining ?? credits.limit.flatMap { limit in credits.used.map { limit - $0 } }
+                if let amount, amount.isFinite {
+                    balance = QuotaBalance(amount: amount, unit: credits.unit ?? "", caption: "额度")
+                }
+            }
+            if let balance {
+                return QuotaPool(provider: provider, windows: [], fetchedAt: snapshot.fetchedAt ?? now,
+                                 title: title, balance: balance)
+            }
+            if provider == .openrouter { return nil }
+        }
         var byKind: [QuotaWindowKind: (window: QuotaWindow, key: String, unit: String?)] = [:]
         for key in snapshot.resources.keys.sorted() {
             if let includingKeys, !includingKeys.contains(key) { continue }

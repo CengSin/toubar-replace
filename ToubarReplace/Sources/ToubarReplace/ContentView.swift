@@ -903,6 +903,11 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         return live.isEmpty ? WorkspacePreferences.seenQuotaProviders : live
     }
 
+    func reloadWorkspaceRegionLayout() {
+        rootView.workspaceView.needsLayout = true
+        workspaceTouchBarController.reloadRegionLayout()
+    }
+
     func reloadQuotaVisibilityFromPreferences() {
         applyQuotaPlate()
     }

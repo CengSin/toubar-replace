@@ -186,22 +186,36 @@ struct QuotaWindow: Equatable, Sendable {
     }
 }
 
+struct QuotaBalance: Equatable, Sendable {
+    var amount: Double
+    var unit: String
+    var caption: String
+
+    var valueText: String {
+        let number = String(format: "%.2f", amount)
+        return unit.lowercased() == "usd" ? "$" + number : number + " " + unit
+    }
+}
+
 struct QuotaPool: Equatable, Sendable {
     var provider: QuotaProviderID
     var windows: [QuotaWindow]
     var fetchedAt: Date
     var title: String
+    var balance: QuotaBalance?
 
     init(
         provider: QuotaProviderID,
         windows: [QuotaWindow],
         fetchedAt: Date,
-        title: String? = nil
+        title: String? = nil,
+        balance: QuotaBalance? = nil
     ) {
         self.provider = provider
         self.windows = windows
         self.fetchedAt = fetchedAt
         self.title = title ?? provider.displayName
+        self.balance = balance
     }
 }
 
@@ -313,6 +327,7 @@ struct QuotaProviderGroupState: Equatable {
     var reset: QuotaBarMetric
     var tooltip: String
     var isRecommended: Bool
+    var balance: QuotaBalance? = nil
 }
 
 struct QuotaBoardState: Equatable {
@@ -347,6 +362,14 @@ struct QuotaBoardState: Equatable {
         decision: QuotaDecision?,
         now: Date
     ) -> QuotaProviderGroupState {
+        if let balance = pool.balance {
+            let empty = QuotaBarMetric(ratio: nil, caption: "", valueText: "—", isHighlighted: false)
+            return QuotaProviderGroupState(
+                provider: pool.provider, title: pool.title,
+                fiveHour: empty, weekly: empty, reset: empty,
+                tooltip: "\(pool.title) · \(balance.caption) \(balance.valueText)",
+                isRecommended: false, balance: balance)
+        }
         let fiveHour = pool.windows.first { $0.kind == .fiveHour }
         let weekly = pool.windows.first { $0.kind == .weekly }
         let isRecommended = decision?.provider == pool.provider

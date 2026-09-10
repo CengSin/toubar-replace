@@ -125,6 +125,8 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let originYField: NSTextField
     private let switcherDisplayModePopup: NSPopUpButton
     private let startupScenePopup: NSPopUpButton
+    private let quotaShareSlider = NSSlider(value: WorkspacePreferences.quotaShare * 100, minValue: 30, maxValue: 75, target: nil, action: nil)
+    private let quotaShareLabel = NSTextField(labelWithString: "")
     private let quotaDisplayStylePopup: NSPopUpButton
     private let widthField: NSTextField
     private let heightField: NSTextField
@@ -139,6 +141,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let onPickApplication: (@escaping (URL?) -> Void) -> Void
     private let onCustomAppsChanged: () -> Void
     private let onQuotaVisibilityChanged: () -> Void
+    private let onQuotaLayoutChanged: () -> Void
     private let onQuotaDisplayStyleChanged: () -> Void
     private let onWindowClosed: () -> Void
 
@@ -156,6 +159,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         onPickApplication: @escaping (@escaping (URL?) -> Void) -> Void,
         onCustomAppsChanged: @escaping () -> Void,
         onQuotaVisibilityChanged: @escaping () -> Void,
+        onQuotaLayoutChanged: @escaping () -> Void,
         onQuotaDisplayStyleChanged: @escaping () -> Void,
         onWindowClosed: @escaping () -> Void
     ) {
@@ -177,6 +181,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.onPickApplication = onPickApplication
         self.onCustomAppsChanged = onCustomAppsChanged
         self.onQuotaVisibilityChanged = onQuotaVisibilityChanged
+        self.onQuotaLayoutChanged = onQuotaLayoutChanged
         self.onQuotaDisplayStyleChanged = onQuotaDisplayStyleChanged
         self.onWindowClosed = onWindowClosed
 
@@ -315,6 +320,18 @@ final class TouchBarSettingsWindowController: NSWindowController,
         quotaDisplayStyleRow.spacing = 12
         quotaDisplayStyleRow.alignment = .centerY
 
+        quotaShareSlider.action = #selector(quotaShareChanged(_:))
+        quotaShareSlider.isContinuous = true
+        quotaShareSlider.setAccessibilityLabel("额度区域占比")
+        quotaShareSlider.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        quotaShareLabel.font = .systemFont(ofSize: 11)
+        quotaShareLabel.textColor = .secondaryLabelColor
+        let quotaShareRow = NSStackView(views: [
+            NSTextField(labelWithString: "区域比例"), quotaShareSlider, quotaShareLabel,
+        ])
+        quotaShareRow.spacing = 12
+        quotaShareRow.alignment = .centerY
+
         let sizeRow = NSStackView(
             views: [sizeLabel, widthField, multiplicationLabel, heightField, pixelsLabel]
         )
@@ -332,6 +349,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
                 sizeRow,
                 quotaSectionLabel,
                 quotaDisplayStyleRow,
+                quotaShareRow,
                 quotaProvidersStack,
                 customAppsSectionLabel,
                 customAppsStack,
@@ -411,6 +429,8 @@ final class TouchBarSettingsWindowController: NSWindowController,
         super.init(window: window)
         window.delegate = self
         positionPopup.target = self
+        quotaShareSlider.target = self
+        updateQuotaShareLabel()
         positionPopup.action = #selector(positionChanged(_:))
         originXField.target = self
         originXField.action = #selector(customTopLeftChanged(_:))
@@ -590,6 +610,19 @@ final class TouchBarSettingsWindowController: NSWindowController,
             return
         }
         onWorkspaceStartupSceneChanged(WorkspaceStartupScene.allCases[itemIndex])
+    }
+
+    private func updateQuotaShareLabel() {
+        let percent = Int((WorkspacePreferences.quotaShare * 100).rounded())
+        quotaShareLabel.stringValue = "额度 \(percent)% · App \(100 - percent)%"
+    }
+
+    @objc private func quotaShareChanged(_ sender: NSSlider) {
+        let share = sender.doubleValue.rounded() / 100
+        guard share != WorkspacePreferences.quotaShare else { return }
+        WorkspacePreferences.quotaShare = share
+        updateQuotaShareLabel()
+        onQuotaLayoutChanged()
     }
 
     @objc

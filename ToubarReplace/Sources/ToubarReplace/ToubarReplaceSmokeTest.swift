@@ -15,6 +15,29 @@ enum ToubarReplaceSmokeTest {
         }
 
         var failures: [String] = []
+        let shareKey = "ToubarReplace.workspace.quotaShare"
+        let savedShare = UserDefaults.standard.object(forKey: shareKey)
+        defer {
+            if let savedShare { UserDefaults.standard.set(savedShare, forKey: shareKey) }
+            else { UserDefaults.standard.removeObject(forKey: shareKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: shareKey)
+        expect(WorkspacePreferences.quotaShare == 0.70,
+               "missing quota share must default to 70 percent", failures: &failures)
+        for share in [0.30, 0.50, 0.75] {
+            WorkspacePreferences.quotaShare = share
+            let zones = WorkspaceTouchBarLayout.trayZoneFrames(
+                tray: NSRect(x: 0, y: 0, width: 956, height: 30))
+            expect(abs(zones.quota.width - floor(944 * share)) < 0.5
+                    && zones.apps.maxX == 944 && WorkspacePreferences.quotaShare == share,
+                   "quota slider must persist and allocate both zones without overflow", failures: &failures)
+        }
+        expect(WorkspacePreferences.clampedQuotaShare(-1) == 0.30
+                && WorkspacePreferences.clampedQuotaShare(2) == 0.75
+                && WorkspacePreferences.clampedQuotaShare(.nan) == 0.70,
+               "invalid quota shares must clamp safely", failures: &failures)
+        WorkspacePreferences.quotaShare = 0.70
+
 
         expect(
             TouchBarWindowMetrics.defaultSize
@@ -254,8 +277,8 @@ enum ToubarReplaceSmokeTest {
         }
         expect(
             WorkspaceTouchBarLayout.totalUnits == 10
-                && WorkspaceTouchBarLayout.quotaUnits == 4
-                && WorkspaceTouchBarLayout.appsUnits == 6
+                && WorkspaceTouchBarLayout.quotaUnits == 7
+                && WorkspaceTouchBarLayout.appsUnits == 3
                 && WorkspaceTouchBarLayout.minimumContentWidth == 400
                 && WorkspaceTouchBarLayout.designReferenceBarWidth == 1_010
                 && WorkspaceTouchBarLayout.maximumContentWidth == 1_010
@@ -272,7 +295,7 @@ enum ToubarReplaceSmokeTest {
                 && WorkspaceTouchBarStyle.agentIconSize == 22
                 && WorkspaceTouchBarStyle.itemSpacing == 6
                 && WorkspaceTouchBarStyle.canvasInset == 4,
-            "Workspace quota 4|6 geometry must stay stable",
+            "Workspace quota 7|3 geometry must stay stable",
             failures: &failures
         )
         let settingsPreferred = WorkspaceTouchBarLayout.preferredContentSize(
@@ -333,7 +356,7 @@ enum ToubarReplaceSmokeTest {
                         + WorkspaceTouchBarStyle.canvasInset * 2
                         - WorkspaceTouchBarLayout.designReferenceBarWidth
                 ) < 2,
-            "full bar strip: switcher outside; quota 4/10; apps 6/10",
+            "full bar strip: switcher outside; quota 7/10; apps 3/10",
             failures: &failures
         )
         expect(
@@ -421,7 +444,7 @@ enum ToubarReplaceSmokeTest {
         )
         expect(
             abs(fullStrip.quota.width - expectedFullQuota) < 1,
-            "quota region must be 4/10 of usable tray",
+            "quota region must be 7/10 of usable tray",
             failures: &failures
         )
         expect(
@@ -634,9 +657,8 @@ enum ToubarReplaceSmokeTest {
         )
         expect(
             QuotaMetricDisplayStyle.allCases.map(\.rawValue)
-                == ["bars", "percent"]
-                && WorkspacePreferences.quotaMetricDisplayStyle == .bars,
-            "quota metric display style defaults to bars",
+                == ["bars", "percent"],
+            "quota metric display styles include bars and percent",
             failures: &failures
         )
         let previousStyle = WorkspacePreferences.quotaMetricDisplayStyle
@@ -763,6 +785,16 @@ enum ToubarReplaceSmokeTest {
             ]
         )
         appsView.layoutSubtreeIfNeeded()
+        for width: CGFloat in [180, 300, 600] {
+            appsView.frame.size.width = width
+            appsView.needsLayout = true
+            appsView.layoutSubtreeIfNeeded()
+            let slots = appsView.slotFramesForValidation
+            expect(slots.count == 4 && slots.first?.minX == 0
+                    && abs((slots.last?.maxX ?? 0) - width) < 4
+                    && slots.allSatisfy { abs($0.width - slots[0].width) < 0.5 },
+                   "app buttons must evenly fill the region as its width changes", failures: &failures)
+        }
         let settingsFrame = appsView.settingsButtonFrame
         expect(
             settingsFrame.width > 20
@@ -992,19 +1024,33 @@ enum ToubarReplaceSmokeTest {
             )
             expect(
                 mappedOpenRouter?.title == "OpenRouter"
-                    && mappedOpenRouter?.windows.contains(where: {
-                        $0.kind == .weekly && abs($0.remainingRatio - (4.0 / 35.0)) < 0.001
-                    }) == true
-                    && mappedOpenRouter?.windows.contains(where: {
-                        abs($0.limit - 0.01) < 0.0001
-                    }) != true,
-                "OpenRouter credits must show and keyLimit must be ignored",
+                    && mappedOpenRouter?.windows.isEmpty == true
+                    && mappedOpenRouter?.balance?.valueText == "$12.00",
+                "OpenRouter must prefer account balance and omit time windows and keyLimit",
                 failures: &failures
             )
         } catch {
             failures.append(
                 "OpenUsage fixture JSON failed to decode: \(error)"
             )
+        }
+        for (resources, expected) in [
+            (#"{"balance":{"kind":"balance","unit":"usd","available":0}}"#, "$0.00"),
+            (#"{"credits":{"kind":"consumption","unit":"usd","limit":35,"used":30.63}}"#, "$4.37"),
+            (#"{"balance":{"kind":"balance","unit":"usd","available":-1.25}}"#, "$-1.25"),
+        ] {
+            do {
+                let json = "{\"providers\":{\"openrouter\":{\"resources\":" + resources + "}}}"
+                let envelope = try OpenUsageLimitsMapper.decodeEnvelope(from: Data(json.utf8))
+                let pools = OpenUsageLimitsMapper.pools(from: envelope)
+                let board = QuotaBoardState.from(pools: pools, now: Date())
+                expect(pools.count == 1 && pools[0].windows.isEmpty
+                        && board.groups.first?.balance?.valueText == expected
+                        && board.recommendedProvider == nil
+                        && board.groups.first?.reset.isAvailable == false,
+                       "pay-as-you-go balances must preserve zero, fallback and debt without resets or recommendations",
+                       failures: &failures)
+            } catch { failures.append("balance fixture failed: \(error)") }
         }
         expect(
             WorkspaceFloatingSwitcherView.Gesture.shouldToggle(

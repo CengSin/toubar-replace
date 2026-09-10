@@ -116,6 +116,21 @@ enum WorkspacePreferences {
     private static let quotaMetricDisplayStyleKey =
         "ToubarReplace.workspace.quotaMetricDisplayStyle"
 
+    static let defaultQuotaShare = 0.70
+    static func clampedQuotaShare(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, 0.30), 0.75) : defaultQuotaShare
+    }
+
+    static var quotaShare: Double {
+        get {
+            let value = UserDefaults.standard.object(forKey: "ToubarReplace.workspace.quotaShare") as? Double
+            return clampedQuotaShare(value ?? defaultQuotaShare)
+        }
+        set {
+            UserDefaults.standard.set(clampedQuotaShare(newValue), forKey: "ToubarReplace.workspace.quotaShare")
+        }
+    }
+
     /// How each quota metric is drawn on the plate: vertical bars or percent text.
     static var quotaMetricDisplayStyle: QuotaMetricDisplayStyle {
         get {

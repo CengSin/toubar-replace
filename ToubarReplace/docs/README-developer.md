@@ -46,7 +46,7 @@ smoke test 不创建窗口、不连接私有 Touch Bar 显示流，主要验证�
 
 Tray 固定两区：**额度 `4/10` | 自定义 App `6/10`**。已删除路径 / 最近项目、内置 Agent 槽位、终端 App 选择。物理 tray item 用 `preferredTrayWidth`（全宽 cap 减去 Escape 槽），全条 cap 仍是 `maximumContentWidth = 1010` 点，避免右侧齿轮被 Function Row chrome 裁切。高度固定约 30 点。
 
-额度板为每个 OpenUsage consumption 订阅一列（Cursor 的 `grokBot` 另拆成 Grok Bots）。列内三根竖柱：短时（≤8h，标 5h）、周/长周期、距周额度重置。列宽不低于 `quotaGroupMinimumWidth`（144）；装不下时 `QuotaPlateView` 横向滑动，不要改成展开/图标芯片。浪费风险 `remainingRatio * exp(-hoursLeft / 12h)`，最高者描边，贡献该分数的额度柱为琥珀色。设置「用量订阅」可隐藏个别池（`ToubarReplace.workspace.hiddenQuotaProviders`），默认全显示。数据先读 `127.0.0.1:6736/v1/limits`，失败再跑 `OpenUsage.app/Contents/Helpers/openusage`，不要 `--force`。点某一列打开对应应用（已固定自定义 App，或已知 bundle / 名称 / 回退 URL）。图标在 `Resources/AgentIcons/`。
+额度板为每个 OpenUsage consumption 订阅一列（Cursor 的 `grokBot` 另拆成 Grok Bots）。列内三根竖柱：短时（≤8h，标 5h）、周/长周期、距周额度重置。列宽不低于 `quotaGroupMinimumWidth`（144）；装不下时 `QuotaPlateView` 横向滑动，不要改成展开/图标芯片。浪费压力 `remainingRatio / cycleRemainingRatio`（周期剩余下限 1%），最高者描边并排到用量区最前面，贡献该分数的额度柱为琥珀色。OpenUsage 约 30 分钟刷新一次。设置「用量订阅」可隐藏个别池（`ToubarReplace.workspace.hiddenQuotaProviders`），默认全显示。数据先读 `127.0.0.1:6736/v1/limits`，失败再跑 `OpenUsage.app/Contents/Helpers/openusage`，不要 `--force`。点某一列打开对应应用（已固定自定义 App，或已知 bundle / 名称 / 回退 URL）。图标在 `Resources/AgentIcons/`。
 
 自定义 App 最多 5 个，在设置中新增、替换或移除；满员拒绝静默挤出。空态「自定义app」、有应用时右侧齿轮均打开设置。点击图标只打开应用。`NSWorkspace` completion error 必须显示，不能静默忽略。
 

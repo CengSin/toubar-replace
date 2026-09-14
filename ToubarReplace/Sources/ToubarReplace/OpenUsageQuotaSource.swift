@@ -244,15 +244,15 @@ enum OpenUsageLimitsMapper {
         if candidateRank != currentRank {
             return candidateRank < currentRank ? candidate : current
         }
-        let currentRisk = QuotaRecommendationEngine.wasteRisk(
+        let currentPressure = QuotaRecommendationEngine.pressure(
             window: current.window,
             now: now
         )
-        let candidateRisk = QuotaRecommendationEngine.wasteRisk(
+        let candidatePressure = QuotaRecommendationEngine.pressure(
             window: candidate.window,
             now: now
         )
-        return candidateRisk > currentRisk ? candidate : current
+        return candidatePressure > currentPressure ? candidate : current
     }
 
     private static func resourceRank(key: String, unit: String?) -> Int {

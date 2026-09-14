@@ -520,27 +520,73 @@ enum ToubarReplaceSmokeTest {
             ],
             fetchedAt: now
         )
+        let grokWeeklyLeftover = QuotaWindow(
+            kind: .weekly,
+            remaining: 92,
+            limit: 100,
+            resetAt: now.addingTimeInterval(53 * 3600),
+            cycle: 7 * 86400
+        )
+        let codexOnPaceSession = QuotaWindow(
+            kind: .fiveHour,
+            remaining: 91,
+            limit: 100,
+            resetAt: now.addingTimeInterval(2.8 * 3600),
+            cycle: 5 * 3600
+        )
+        expect(
+            QuotaRecommendationEngine.pressure(
+                window: grokWeeklyLeftover,
+                now: now
+            ) > QuotaRecommendationEngine.pressure(
+                window: codexOnPaceSession,
+                now: now
+            ),
+            "weekly leftover vs remaining cycle must outrank an on-pace session window",
+            failures: &failures
+        )
+        let grokOverSession = QuotaRecommendationEngine.recommend(
+            pools: [
+                QuotaPool(
+                    provider: .codex,
+                    windows: [codexOnPaceSession],
+                    fetchedAt: now
+                ),
+                QuotaPool(
+                    provider: .grokBuild,
+                    windows: [grokWeeklyLeftover],
+                    fetchedAt: now
+                ),
+            ],
+            now: now
+        )
+        expect(
+            grokOverSession?.provider == .grokBuild
+                && grokOverSession?.highlightedKind == .weekly,
+            "pressure ranking must prefer leftover weekly quota over a soon-reset session that is still on pace",
+            failures: &failures
+        )
         let decision = QuotaRecommendationEngine.recommend(
             pools: [codex, grokBuild, grokBots],
             now: now
         )
         expect(
-            decision?.provider == .grokBuild
-                && decision?.highlightedKind == .fiveHour,
-            "soon-reset leftover quota must outrank fuller weekly allotments",
+            decision?.provider == .codex
+                && decision?.highlightedKind == .weekly,
+            "fuller weekly leftover relative to cycle remaining must outrank a behind-pace 5h window",
             failures: &failures
         )
-        let botsRisk = QuotaRecommendationEngine.wasteRisk(
+        let botsPressure = QuotaRecommendationEngine.pressure(
             window: grokBots.windows[0],
             now: now
         )
-        let codexRisk = QuotaRecommendationEngine.wasteRisk(
+        let codexPressure = QuotaRecommendationEngine.pressure(
             window: codex.windows[0],
             now: now
         )
         expect(
-            botsRisk > codexRisk,
-            "a nearer empty-ish window must outrank a distant fuller weekly window",
+            codexPressure > botsPressure,
+            "leftover relative to cycle remaining must outrank a nearer empty-ish window",
             failures: &failures
         )
         let emptyDecision = QuotaRecommendationEngine.recommend(
@@ -567,31 +613,33 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         let boardState = QuotaBoardState.from(
-            pools: [codex, grokBuild, grokBots],
+            pools: [grokBuild, grokBots, codex],
             now: now,
             hiddenProviderIDs: []
         )
         expect(
-            boardState.groups.count == 3
-                && boardState.recommendedProvider == .grokBuild
-                && boardState.groups.contains(where: {
-                    $0.provider == .grokBuild
-                        && $0.isRecommended
-                        && $0.fiveHour.isHighlighted
-                        && $0.fiveHour.valueText == "41%"
-                        && $0.reset.valueText == "4d0h"
-                })
+            boardState.groups.map(\.provider) == [.codex, .grokBuild, .grokBots]
+                && boardState.recommendedProvider == .codex
                 && boardState.groups.contains(where: {
                     $0.provider == .codex
+                        && $0.isRecommended
+                        && $0.weekly.isHighlighted
                         && $0.weekly.valueText == "80%"
                         && $0.reset.valueText == "3d0h"
+                })
+                && boardState.groups.contains(where: {
+                    $0.provider == .grokBuild
+                        && !$0.isRecommended
+                        && !$0.fiveHour.isHighlighted
+                        && $0.fiveHour.valueText == "41%"
+                        && $0.reset.valueText == "4d0h"
                 })
                 && boardState.groups.contains(where: {
                     $0.provider == .grokBots
                         && $0.reset.ratio == nil
                         && $0.reset.valueText == "—"
                 }),
-            "quota board must show every pool as three bars, mark the recommended 5h, and time reset from the weekly window",
+            "quota board must promote the recommended pool to the front, show every pool as three bars, and time reset from the weekly window",
             failures: &failures
         )
         let hiddenCodex = QuotaBoardState.from(
@@ -600,17 +648,17 @@ enum ToubarReplaceSmokeTest {
             hiddenProviderIDs: [QuotaProviderID.codex.rawValue]
         )
         expect(
-            hiddenCodex.groups.count == 2
+            hiddenCodex.groups.map(\.provider) == [.grokBuild, .grokBots]
+                && hiddenCodex.recommendedProvider == .grokBuild
                 && hiddenCodex.groups.contains(where: {
                     $0.provider == .grokBuild
-                })
-                && hiddenCodex.groups.contains(where: {
-                    $0.provider == .grokBots
+                        && $0.isRecommended
+                        && $0.weekly.isHighlighted
                 })
                 && !hiddenCodex.groups.contains(where: {
                     $0.provider == .codex
                 }),
-            "hidden quota providers must not appear on the board",
+            "hidden quota providers must not appear on the board or win the recommendation",
             failures: &failures
         )
         let weeklyOnlyBoard = QuotaBoardState.from(
@@ -718,6 +766,7 @@ enum ToubarReplaceSmokeTest {
         quotaPlate.layoutSubtreeIfNeeded()
         expect(
             quotaPlate.groupViews.count == 3
+                && quotaPlate.groupViews.first?.state?.provider == .codex
                 && quotaPlate.needsHorizontalScroll
                 && quotaPlate.contentWidth > quotaPlate.bounds.width
                 && quotaPlate.groupViews.allSatisfy { view in
@@ -1074,7 +1123,12 @@ enum ToubarReplaceSmokeTest {
         expect(
             Array(QuotaProviderID.preferredDisplayOrder.prefix(3))
                 == [.grokBuild, .grokBots, .codex],
-            "known quota providers must keep their leading display order",
+            "known quota providers must keep their fallback display order",
+            failures: &failures
+        )
+        expect(
+            QuotaRefreshSchedule.interval == 30 * 60,
+            "quota fetch and reorder must run about every 30 minutes",
             failures: &failures
         )
         expect(

@@ -25,7 +25,8 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     static let devin = QuotaProviderID("devin")
     static let openrouter = QuotaProviderID("openrouter")
 
-    /// Stable leading order on the plate; unknown IDs sort after this list.
+    /// Fallback order for settings and unranked plate slots. The quota plate
+    /// promotes the recommended (highest-pressure) provider to the front.
     static let preferredDisplayOrder: [QuotaProviderID] = [
         .grokBuild, .grokBots, .codex, .cursor, .claude, .antigravity,
         .copilot, .opencode, .ollama, .devin, .openrouter,
@@ -168,7 +169,8 @@ struct QuotaWindow: Equatable, Sendable {
     var remaining: Double
     var limit: Double
     var resetAt: Date
-    /// Full cycle length (5 hours or 7 days). Used for pressure, not ranking.
+    /// Full cycle length (5 hours or 7 days). Pressure ranking uses
+    /// remaining / cycle-remaining.
     var cycle: TimeInterval
 
     var remainingRatio: Double {
@@ -222,31 +224,32 @@ struct QuotaPool: Equatable, Sendable {
 struct QuotaDecision: Equatable, Sendable {
     var provider: QuotaProviderID
     var highlightedKind: QuotaWindowKind
-    var wasteRisk: Double
+    var pressure: Double
     var windows: [QuotaWindow]
 }
 
-/// Ranks pools by how much leftover quota is likely to expire unused.
-///
-/// `wasteRisk = remainingRatio * exp(-hoursLeft / tau)`
-/// with `tau = 12h`. Time-to-reset dominates, so a half-full window that
-/// expires in a few hours outranks a fuller weekly allotment days away.
-enum QuotaRecommendationEngine {
-    static let urgencyTauHours: Double = 12
-    static let minimumRemainingRatio: Double = 0.001
+enum QuotaRefreshSchedule {
+    /// OpenUsage fetch and plate reorder cadence.
+    static let interval: TimeInterval = 30 * 60
+}
 
-    static func wasteRisk(window: QuotaWindow, now: Date) -> Double {
+/// Ranks pools by leftover quota relative to how much of the cycle remains.
+///
+/// `pressure = remainingRatio / cycleRemainingRatio`
+/// with cycle remaining floored at 1%. Values above 1 mean the user is
+/// burning slower than the clock and will waste quota if the pace holds.
+enum QuotaRecommendationEngine {
+    static let minimumRemainingRatio: Double = 0.001
+    static let minimumCycleRemainingRatio: Double = 0.01
+
+    static func pressure(window: QuotaWindow, now: Date) -> Double {
         let remaining = window.remainingRatio
         guard remaining >= minimumRemainingRatio else { return 0 }
-        let hoursLeft = window.hoursUntilReset(now: now)
-        return remaining * exp(-hoursLeft / urgencyTauHours)
-    }
-
-    /// remaining / cycleRemaining. Values above 1 mean the user is burning
-    /// slower than the clock and will waste quota if the pace holds.
-    static func pressure(window: QuotaWindow, now: Date) -> Double {
-        let cycleLeft = max(window.cycleRemainingRatio(now: now), 0.01)
-        return window.remainingRatio / cycleLeft
+        let cycleLeft = max(
+            window.cycleRemainingRatio(now: now),
+            minimumCycleRemainingRatio
+        )
+        return remaining / cycleLeft
     }
 
     static func recommend(
@@ -257,7 +260,7 @@ enum QuotaRecommendationEngine {
         for pool in pools {
             guard let scored = bestWindow(in: pool, now: now) else { continue }
             if let current = best {
-                if scored.wasteRisk > current.wasteRisk {
+                if scored.pressure > current.pressure {
                     best = scored
                 }
             } else {
@@ -272,19 +275,19 @@ enum QuotaRecommendationEngine {
         now: Date
     ) -> QuotaDecision? {
         var highlighted: QuotaWindow?
-        var highlightedRisk: Double = 0
+        var highlightedPressure: Double = 0
         for window in pool.windows {
-            let risk = wasteRisk(window: window, now: now)
-            if risk > highlightedRisk {
+            let score = pressure(window: window, now: now)
+            if score > highlightedPressure {
                 highlighted = window
-                highlightedRisk = risk
+                highlightedPressure = score
             }
         }
-        guard let highlighted, highlightedRisk > 0 else { return nil }
+        guard let highlighted, highlightedPressure > 0 else { return nil }
         return QuotaDecision(
             provider: pool.provider,
             highlightedKind: highlighted.kind,
-            wasteRisk: highlightedRisk,
+            pressure: highlightedPressure,
             windows: pool.windows
         )
     }
@@ -350,11 +353,29 @@ struct QuotaBoardState: Equatable {
             pools: visible,
             now: now
         )
-        let groups = visible.map { group(from: $0, decision: decision, now: now) }
+        let groups = promoteRecommended(
+            visible.map { group(from: $0, decision: decision, now: now) },
+            recommended: decision?.provider
+        )
         return QuotaBoardState(
             groups: groups,
             recommendedProvider: decision?.provider
         )
+    }
+
+    /// Highest-pressure subscription leads; remaining keep incoming order.
+    static func promoteRecommended(
+        _ groups: [QuotaProviderGroupState],
+        recommended: QuotaProviderID?
+    ) -> [QuotaProviderGroupState] {
+        guard let recommended,
+              let index = groups.firstIndex(where: { $0.provider == recommended }),
+              index > 0
+        else { return groups }
+        var ordered = groups
+        let winner = ordered.remove(at: index)
+        ordered.insert(winner, at: 0)
+        return ordered
     }
 
     private static func group(

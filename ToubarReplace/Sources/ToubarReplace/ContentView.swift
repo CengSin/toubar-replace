@@ -929,7 +929,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         quotaRefreshTask = Task { @MainActor [weak self] in
             await self?.loadOpenUsageQuota(generation: generation)
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(QuotaRefreshSchedule.interval))
                 guard !Task.isCancelled else { return }
                 await self?.loadOpenUsageQuota(generation: generation)
             }

@@ -1206,6 +1206,8 @@ final class QuotaPlateView: NSView {
     private let documentView = NSView()
     private(set) var groupViews: [QuotaProviderGroupView] = []
     private var state = QuotaBoardState.empty
+    private var leadingProvider: QuotaProviderID?
+    private var pendingScrollReset = false
     private(set) var contentWidth: CGFloat = 0
     private(set) var needsHorizontalScroll = false
 
@@ -1259,6 +1261,11 @@ final class QuotaPlateView: NSView {
 
     func display(_ state: QuotaBoardState) {
         self.state = state
+        let newLeading = state.groups.first?.provider
+        if newLeading != leadingProvider {
+            pendingScrollReset = true
+            leadingProvider = newLeading
+        }
         groupViews.forEach { $0.removeFromSuperview() }
         groupViews.removeAll()
         emptyLabel.isHidden = !state.isEmpty
@@ -1293,7 +1300,10 @@ final class QuotaPlateView: NSView {
             )
             return
         }
-        let previousOffset = scrollView.contentView.bounds.origin.x
+        let previousOffset = pendingScrollReset
+            ? 0
+            : scrollView.contentView.bounds.origin.x
+        pendingScrollReset = false
         let showsFiveHour = groupViews.map {
             $0.state?.fiveHour.isAvailable != false
         }

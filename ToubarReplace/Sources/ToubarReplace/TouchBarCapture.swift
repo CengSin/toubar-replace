@@ -92,9 +92,9 @@ enum TouchBarPresentationPreferences {
         CFPreferencesAppSynchronize(applicationIdentifier as CFString)
     }
 
-    /// Mirror must not stay in Workspace's `"app"` mode (Control Strip off).
-    /// Only heals that leftover; does not write a mode if the key is already
-    /// something else.
+
+
+
     static func clearWorkspaceAppModeIfPresent(workspaceMode: String) {
         guard currentMode == workspaceMode else { return }
         setCurrentMode(nil)
@@ -139,10 +139,10 @@ enum TouchBarSystemState {
     }
 }
 
-/// Mirrors the IOSurface frames produced by the private Touch Bar display
-/// stream. A single stream stays alive for the lifetime of the mirror; unlike
-/// `screencapture -b`, this does not launch a process or allocate a screenshot
-/// surface for every refresh.
+
+
+
+
 final class TouchBarCapture: @unchecked Sendable {
     typealias FrameHandler = @Sendable (CGImage) -> Void
     typealias NoticeHandler = @Sendable (TouchBarCaptureNotice) -> Void

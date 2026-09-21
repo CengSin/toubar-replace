@@ -203,9 +203,6 @@ final class WorkspaceBarView: NSView {
     private let zoneDivider = NSView()
 
     var onToggleWorkspace: (() -> Void)?
-    var onOpenProvider: ((QuotaProviderID) -> Void)? {
-        didSet { quotaPlate.onOpenProvider = onOpenProvider }
-    }
     var onOpenSettings: (() -> Void)? {
         didSet { customAppsView.onOpenSettings = onOpenSettings }
     }
@@ -237,9 +234,6 @@ final class WorkspaceBarView: NSView {
         trayView.layer?.cornerRadius = WorkspaceTouchBarStyle.trayCornerRadius
         addSubview(trayView)
 
-        quotaPlate.onOpenProvider = { [weak self] provider in
-            self?.onOpenProvider?(provider)
-        }
         addSubview(quotaPlate)
 
         customAppsView.onOpenSettings = { [weak self] in
@@ -330,7 +324,7 @@ final class WorkspaceBarView: NSView {
 final class TouchBarRootView: NSView {
     let surfaceView: TouchBarSurfaceView
     let workspaceView: WorkspaceBarView
-    /// Freezes the last mirror frame over the viewport during scene switches.
+
     private let transitionCoverView = NSView(frame: .zero)
     private var transitionCoverTask: Task<Void, Never>?
     private(set) var scene: BarScene = .mirror
@@ -375,7 +369,7 @@ final class TouchBarRootView: NSView {
         transitionCoverView.frame = contentFrame
     }
 
-    /// Snapshot the current mirror pixels and pin them above the live surface.
+
     func beginSceneTransitionCover() {
         transitionCoverTask?.cancel()
         transitionCoverTask = nil
@@ -387,11 +381,11 @@ final class TouchBarRootView: NSView {
         }
         transitionCoverView.alphaValue = 1
         transitionCoverView.isHidden = false
-        // Keep cover above surface / fallback workspace chrome.
+
         addSubview(transitionCoverView, positioned: .above, relativeTo: nil)
     }
 
-    /// After modal swap settles, fade the frozen frame out to reveal live capture.
+
     func scheduleSceneTransitionCoverFade(
         settle: Duration = MirrorSceneTransition.settleDuration,
         fadeDuration: TimeInterval = MirrorSceneTransition.fadeDuration

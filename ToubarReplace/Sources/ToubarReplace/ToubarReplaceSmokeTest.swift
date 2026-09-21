@@ -271,7 +271,7 @@ enum ToubarReplaceSmokeTest {
             )
             failures.append("自定义 App completion error 不得被忽略")
         } catch CustomAppOpenTestError.rejected {
-            // Expected: completion errors must reach the caller.
+
         } catch {
             failures.append("自定义 App 返回了意外错误：\(error)")
         }
@@ -464,13 +464,11 @@ enum ToubarReplaceSmokeTest {
         let quotaPlate = QuotaPlateView(
             frame: NSRect(x: 0, y: 0, width: 360, height: 30)
         )
-        var openedProvider: QuotaProviderID?
-        quotaPlate.onOpenProvider = { openedProvider = $0 }
         quotaPlate.display(.empty)
         quotaPlate.layoutSubtreeIfNeeded()
         expect(
-            quotaPlate.groupViews.isEmpty && openedProvider == nil,
-            "empty quota plate must not open a provider",
+            quotaPlate.groupViews.isEmpty,
+            "empty quota plate must have no group views",
             failures: &failures
         )
         let now = Date(timeIntervalSince1970: 1_000_000)
@@ -786,14 +784,6 @@ enum ToubarReplaceSmokeTest {
                 )
                     < WorkspaceTouchBarLayout.quotaGroupMinimumWidth,
             "quota plate must size two-bar cards narrower and scroll overflow",
-            failures: &failures
-        )
-        openedProvider = nil
-        quotaPlate.groupViews.first { $0.state?.provider == .grokBuild }?
-            .onActivate?(.grokBuild)
-        expect(
-            openedProvider == .grokBuild,
-            "tapping a quota group must open that provider",
             failures: &failures
         )
         let appsZone = WorkspaceTouchBarLayout.zoneContentRect(
@@ -1245,7 +1235,7 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
 
-        // Apple Silicon / no-Touch-Bar software Workspace policies.
+
         expect(
             !TouchBarHardwareCapability.softwareWorkspaceMode(
                 canPresentSystemModal: true,
@@ -1450,8 +1440,8 @@ enum ToubarReplaceSmokeTest {
             "software idle/mirror surface must stay click-through",
             failures: &failures
         )
-        // Live probe: when this Mac has a usable stack, software mode must stay off
-        // (Intel Touch Bar regression guard). Soft machines correctly report true.
+
+
         if TouchBarHardwareCapability.canPresentSystemModal
             && TouchBarHardwareCapability.canInstantiateDisplayStream
         {

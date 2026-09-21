@@ -36,8 +36,8 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        // Settings / alerts make the app frontmost and can re-show the
-        // system-modal close box next to the mirror grid switcher.
+
+
         windowController?.suppressPhysicalSwitcherCloseBox()
     }
 
@@ -103,8 +103,8 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
                 self?.settingsWindowController?.updateCustomTopLeft(topLeft)
             }
         }
-        // Refresh pin list if settings was already open (e.g. preferences
-        // changed externally); always re-show the window.
+
+
         settingsWindowController?.reloadCustomAppsRows()
         settingsWindowController?.reloadQuotaProviderRows(
             windowController?.quotaProviderChoices()
@@ -113,8 +113,8 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
-        // Activation can reintroduce the Touch Bar close box; suppress again
-        // after the function row rebuilds.
+
+
         windowController?.suppressPhysicalSwitcherCloseBox()
         DispatchQueue.main.async { [weak self] in
             self?.windowController?.suppressPhysicalSwitcherCloseBox()
@@ -238,8 +238,8 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             isDirectory: true
         )
 
-        // Prefer sheet on settings when visible so activation policy stays
-        // consistent with the settings window.
+
+
         if let settingsWindow = settingsWindowController?.window,
             settingsWindow.isVisible
         {

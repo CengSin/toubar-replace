@@ -1,0 +1,43 @@
+# 设置面板 (Settings Window)
+
+## Touch Bar 镜像与工作区设置
+- 用户称呼：设置窗口、偏好设置、Settings Window、配置面板
+- 入口：
+  - 顶部状态栏图标菜单 → 点击「设置…」
+  - Workspace 触控栏/软件栏应用区 → 点击右侧齿轮图标按钮（`gearshape`）
+  - Workspace 触控栏/软件栏应用区空态时 → 点击「自定义app」按钮
+- 关键选择器：
+  - 窗口 Title：`ToubarReplace 设置`
+  - 窗口 Frame Autosave：`ToubarReplaceSettingsWindow`
+  - 窗口样式与限制：`styleMask: [.titled, .closable, .resizable]`, `contentMinSize: NSSize(width: 480, height: 480)`
+  - 展示位置下拉框：`positionPopup`（`NSPopUpButton`，选项：`底部（默认）`、`顶部`、`屏幕中央`、`上次关闭时的位置`、`自定义坐标`）
+  - 起始坐标输入框：`originXField`、`originYField`（`NSTextField`，`formatter: originFormatter`，标签：`pt（窗口左上角）`）
+  - 切换按钮模式下拉框：`switcherDisplayModePopup`（`NSPopUpButton`，选项：`物理 Touch Bar`、`独立浮窗`；无物理栏时强制`独立浮窗`）
+  - 启动后进入下拉框：`startupScenePopup`（`NSPopUpButton`，选项：`Workspace`、`镜像`）
+  - 窗口像素输入框：`widthField`、`heightField`（`NSTextField`，单位：`px`，默认 2300 × 70）
+  - 额度样式下拉框：`quotaDisplayStylePopup`（`NSPopUpButton`，选项：`柱状`、`数字`等）
+  - 区域比例滑块：`quotaShareSlider`（`NSSlider`，范围 30~75，`accessibilityLabel: "额度区域占比"`，联动标签 `quotaShareLabel`: "额度 X% · App Y%"）
+  - 用量订阅控制：
+    - 批量按钮：`showAll`（标题："全部显示"）、`hideAll`（标题："全部隐藏"）
+    - 订阅复选框：`NSButton(checkboxWithTitle: choice.title)`，`identifier: choice.id.rawValue`（如 `grok-build`、`grok-bots`、`codex`、`cursor`、`claude`、`antigravity`、`copilot`、`opencode`、`ollama`、`devin`、`openrouter` 等）
+    - 订阅空态文本：`"还没有读到订阅。请确认本机已安装 OpenUsage。"`
+  - 自定义 App 控制：
+    - 应用项：`iconView` + `nameLabel` + `replaceButton`（标题："替换…"，tag 为 index）+ `removeButton`（标题："移除"，tag 为 index）
+    - 添加应用按钮：`addButton`（标题："添加应用…"；已满 5 个时变为提示文案 `"已满 5 个，可替换或移除后再添加。"`）
+    - 空态提示文本：`"尚未固定应用"`
+    - 选择应用弹窗：`NSOpenPanel`（Title: `"选择常用应用"`，Prompt: `"选择"`，Directory: `"/Applications"`，AllowedTypes: `[.application]`）
+    - 满员告警弹窗：`NSAlert`（Title: `"自定义 App 已满"`，Informative: `"最多固定 5 个。请先移除或替换其中一个。"`）
+- 子功能：
+  - 窗口定位策略切换：底部、顶部、居中、恢复上次记忆位置或指定自定义屏幕坐标（AppKit 向上 Y 轴）
+  - 自定义坐标微调：当展示位置选中"自定义坐标"时解锁输入框，输入后立即刷新窗口位置
+  - 切换按钮位置配置：在物理 Touch Bar 左侧网格与独立桌面悬浮窗二选一（无物理栏强制独立悬浮窗）
+  - 启动默认场景切换：控制冷启动后进入 Workspace 工作区还是进入 Touch Bar 镜像
+  - 像素与缩放调整：按真实像素调整镜像视口宽与高，自动换算 backing scale 比例
+  - 额度板样式与比例调节：实时滑块调节额度区与应用区的占比（30%~75%），拖动立即生效并自动保存
+  - 用量订阅多选管理：通过复选框显式勾选要上栏展示的订阅池，支持一键全部显示/隐藏
+  - 常用 App 槽位管理：从 `/Applications` 中选择常用应用固定到 Touch Bar，支持替换已有槽位与移除已固定槽位（上限 5 个，满员禁止静默挤出）
+- 前置条件：状态栏菜单或 Workspace 界面点击触发；打开时应用临时变为 Frontmost/Regular 进程，关闭后回到后台 Accessory 模式
+- 常见故障现象：
+  - 用量订阅为空：本地未运行 OpenUsage，或 `127.0.0.1:6736` 无法连接且未安装 CLI
+  - 起始坐标不可输入：展示位置当前未选择「自定义坐标」模式，属于输入框保护状态
+  - 打开设置时 Touch Bar 出现关闭按钮 "X"：前台激活导致系统重置 Function Row，应用会自动执行关闭盒抑制（`suppressCloseBox`）

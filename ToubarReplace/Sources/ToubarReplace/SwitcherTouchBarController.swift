@@ -1,12 +1,12 @@
 import AppKit
 import TouchBarPrivateAPI
 
-/// Mirror-mode physical Touch Bar: a single grid button (placement 0).
-///
-/// Opening Settings makes the app frontmost, which can re-show the system-modal
-/// close box. If the user taps it, the system dismisses the bar while
-/// `isPresented` would otherwise stay true — we suppress the close box on
-/// activation and re-present after unexpected detachment.
+
+
+
+
+
+
 @MainActor
 final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
     private enum ItemIdentifier {
@@ -15,8 +15,8 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
         )
     }
 
-    // Placement 0 tends to put the item toward the left of the app region and
-    // keeps the system Control Strip available.
+
+
     private static let placement: Int64 = 0
 
     let touchBar = NSTouchBar()
@@ -26,7 +26,7 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
     private var detachmentTask: Task<Void, Never>?
     private(set) var isPresented = false
     var onToggleWorkspace: (() -> Void)?
-    /// System dismissed the bar (e.g. close box) without `dismiss()`.
+
     var onPresentationInterrupted: (() -> Void)?
 
     override init() {
@@ -70,8 +70,8 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
         isExplicitlyDismissing = false
     }
 
-    /// Re-apply close-box suppression after the app becomes frontmost
-    /// (settings, help, open panels).
+
+
     func suppressCloseBox() {
         guard isPresented else { return }
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(false)

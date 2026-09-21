@@ -61,9 +61,9 @@ enum WorkspacePreferences {
     private static let startupSceneKey =
         "ToubarReplace.workspace.startupScene"
 
-    /// Preferred location of the Workspace switcher button.
-    /// `.touchBar` shows a real touchable button on the hardware Touch Bar.
-    /// `.floating` shows the independent floating window only.
+
+
+
     static var switcherDisplayMode: WorkspaceSwitcherDisplayMode {
         get {
             if let rawValue = UserDefaults.standard.string(
@@ -73,7 +73,7 @@ enum WorkspacePreferences {
             {
                 return mode
             }
-            // Migrate from the older floatingSwitcher bool.
+
             if UserDefaults.standard.object(forKey: floatingSwitcherKey) != nil {
                 return UserDefaults.standard.bool(forKey: floatingSwitcherKey)
                     ? .floating
@@ -89,7 +89,7 @@ enum WorkspacePreferences {
         }
     }
 
-    /// Convenience: true means floating window mode.
+
     static var floatingSwitcher: Bool {
         get { switcherDisplayMode == .floating }
         set { switcherDisplayMode = newValue ? .floating : .touchBar }
@@ -131,7 +131,7 @@ enum WorkspacePreferences {
         }
     }
 
-    /// How each quota metric is drawn on the plate: vertical bars or percent text.
+
     static var quotaMetricDisplayStyle: QuotaMetricDisplayStyle {
         get {
             if let raw = UserDefaults.standard.string(
@@ -151,7 +151,7 @@ enum WorkspacePreferences {
         }
     }
 
-    /// Provider IDs the user hid in Settings. Missing key / empty = show all.
+
     static var hiddenQuotaProviderIDs: Set<String> {
         get {
             Set(
@@ -182,7 +182,7 @@ enum WorkspacePreferences {
         hiddenQuotaProviderIDs = hidden
     }
 
-    /// Last OpenUsage pools, so Settings can list subscriptions before/without a live fetch.
+
     static var seenQuotaProviders: [QuotaProviderChoice] {
         get {
             guard
@@ -219,8 +219,8 @@ enum WorkspacePreferences {
         }
     }
 
-    /// Pinned favorites in slot order (index 0…maxCount-1). Cap via
-    /// ``CustomWorkspaceAppList.normalized``.
+
+
     static var customApps: [CustomWorkspaceApp] {
         get {
             guard
@@ -255,13 +255,13 @@ struct SeenQuotaProviderRecord: Codable, Equatable {
     var title: String
 }
 
-/// User-pinned app for the Workspace apps zone (open only).
+
 struct CustomWorkspaceApp: Codable, Equatable {
-    /// Bundle identifier when known; used for dedupe and relaunch fallback.
+
     var bundleIdentifier: String?
-    /// Absolute path to the `.app` bundle when selected.
+
     var applicationPath: String
-    /// Display name captured at add time.
+
     var displayName: String
 
     var applicationURL: URL {
@@ -288,9 +288,9 @@ struct CustomWorkspaceApp: Codable, Equatable {
 enum CustomWorkspaceAppList {
     static let maxCount = 5
 
-    /// Dedupe (last wins) and keep at most ``maxCount`` in list order.
-    /// Does not silently evict by FIFO when adding — callers use ``adding`` /
-    /// ``replacing`` for explicit pin management.
+
+
+
     static func normalized(_ apps: [CustomWorkspaceApp]) -> [CustomWorkspaceApp] {
         var result: [CustomWorkspaceApp] = []
         for app in apps {
@@ -303,8 +303,8 @@ enum CustomWorkspaceAppList {
         return result
     }
 
-    /// Append when under capacity. If already pinned, refreshes that slot.
-    /// Returns `nil` when full and `app` is not already in the list.
+
+
     static func adding(
         _ app: CustomWorkspaceApp,
         to apps: [CustomWorkspaceApp]
@@ -319,8 +319,8 @@ enum CustomWorkspaceAppList {
         return result
     }
 
-    /// Replace the pin at `index`. Other slots that match the same app are
-    /// removed. Returns `nil` if `index` is out of range.
+
+
     static func replacing(
         at index: Int,
         with app: CustomWorkspaceApp,

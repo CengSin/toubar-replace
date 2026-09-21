@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/Scripts/check-comments.sh" --check
+
 VERSION="${TOUBAR_VERSION:-1.0.0}"
 APP_DIR="$ROOT_DIR/dist/ToubarReplace.app"
 DMG_PATH="$ROOT_DIR/dist/ToubarReplace-${VERSION}.dmg"

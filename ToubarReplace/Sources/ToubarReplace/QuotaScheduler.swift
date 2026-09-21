@@ -1,7 +1,7 @@
 import Foundation
 
-/// Subscription pool on the quota plate. Known IDs keep icons / launch
-/// targets; any other OpenUsage provider key is still shown.
+
+
 struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     let rawValue: String
 
@@ -25,8 +25,8 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     static let devin = QuotaProviderID("devin")
     static let openrouter = QuotaProviderID("openrouter")
 
-    /// Fallback order for settings and unranked plate slots. The quota plate
-    /// promotes the recommended (highest-pressure) provider to the front.
+
+
     static let preferredDisplayOrder: [QuotaProviderID] = [
         .grokBuild, .grokBots, .codex, .cursor, .claude, .antigravity,
         .copilot, .opencode, .ollama, .devin, .openrouter,
@@ -61,7 +61,7 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
         }
     }
 
-    /// Bundled mark under `Resources/AgentIcons/`, if we ship one.
+
     var iconResourceName: String? {
         switch self {
         case .codex:
@@ -165,12 +165,12 @@ enum QuotaWindowKind: String, Codable, Sendable {
 
 struct QuotaWindow: Equatable, Sendable {
     var kind: QuotaWindowKind
-    /// Remaining allowance in the same unit as ``limit``.
+
     var remaining: Double
     var limit: Double
     var resetAt: Date
-    /// Full cycle length (5 hours or 7 days). Pressure ranking uses
-    /// remaining / cycle-remaining.
+
+
     var cycle: TimeInterval
 
     var remainingRatio: Double {
@@ -229,15 +229,15 @@ struct QuotaDecision: Equatable, Sendable {
 }
 
 enum QuotaRefreshSchedule {
-    /// OpenUsage fetch and plate reorder cadence.
+
     static let interval: TimeInterval = 30 * 60
 }
 
-/// Ranks pools by leftover quota relative to how much of the cycle remains.
-///
-/// `pressure = remainingRatio / cycleRemainingRatio`
-/// with cycle remaining floored at 1%. Values above 1 mean the user is
-/// burning slower than the clock and will waste quota if the pace holds.
+
+
+
+
+
 enum QuotaRecommendationEngine {
     static let minimumRemainingRatio: Double = 0.001
     static let minimumCycleRemainingRatio: Double = 0.01
@@ -363,7 +363,7 @@ struct QuotaBoardState: Equatable {
         )
     }
 
-    /// Highest-pressure subscription leads; remaining keep incoming order.
+
     static func promoteRecommended(
         _ groups: [QuotaProviderGroupState],
         recommended: QuotaProviderID?

@@ -28,7 +28,7 @@ struct TouchBarWindowMetrics {
         )
     }
 
-    /// Root panel size equals the mirror viewport (no attached switcher rail).
+
     static func rootSize(forMirrorSize mirrorSize: CGSize) -> CGSize {
         CGSize(
             width: max(mirrorSize.width, 1),
@@ -37,7 +37,7 @@ struct TouchBarWindowMetrics {
     }
 }
 
-/// Desktop-window hover fade. Physical Touch Bar chrome is never changed.
+
 enum TouchBarHoverOpacity {
     static let normal: CGFloat = 1
     static let hovered: CGFloat = 0.3
@@ -54,12 +54,12 @@ enum TouchBarHoverOpacity {
     }
 }
 
-/// Mirror-window cover used while physical Touch Bar modals swap.
-/// Freezes the last captured frame, then fades out after a short settle.
+
+
 enum MirrorSceneTransition {
-    /// Keep the cover opaque while system modal + capture settle.
+
     static let settleDuration: Duration = .milliseconds(221)
-    /// Fade-out of the frozen frame overlay.
+
     static let fadeDuration: TimeInterval = 0.12
 }
 
@@ -148,8 +148,8 @@ final class TouchBarHoverOpacityController {
     }
 }
 
-/// Bounds queued UI work when the main actor is temporarily busy. The display
-/// stream can replace `latestImage`, but at most one delivery task is pending.
+
+
 final class TouchBarFrameDeliveryCoalescer: @unchecked Sendable {
     private let lock = NSLock()
     private let onFrame: @MainActor @Sendable (CGImage) -> Void
@@ -238,7 +238,7 @@ final class TouchBarSurfaceView: NSView {
         statusLabel.isHidden = true
     }
 
-    /// Latest mirror bitmap (or nil before the first frame).
+
     var currentFrameContents: Any? {
         imageView.layer?.contents
     }
@@ -264,7 +264,7 @@ final class TouchBarSurfaceView: NSView {
         addSubview(statusLabel, positioned: .above, relativeTo: imageView)
     }
 
-    /// Placeholder when there is no physical Touch Bar (software Workspace mode).
+
     func displaySoftwareWorkspaceIdle() {
         imageView.layer?.contents = nil
         imageView.isHidden = true
@@ -289,26 +289,25 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let switcherTouchBarController = SwitcherTouchBarController()
     private var workspaceSwitcherWindowController:
         WorkspaceSwitcherWindowController?
-    /// True only when launch restored an autosaved frame under `.lastSaved`.
+
     private var hasRestoredFrame = false
     private var workspaceObservers: [NSObjectProtocol] = []
     private var resumeToWorkspace = false
-    /// Sleep/lock fires multiple notifications; true after the first pause
-    /// so later ones cannot rewrite `resumeToWorkspace` from the torn-down scene.
+
+
     private var isHardwareSessionPaused = false
     private var isRunning = false
     private var workspaceGeneration: UInt64 = 0
-    private var recommendedLaunchTask: Task<Void, Never>?
     private var quotaRefreshTask: Task<Void, Never>?
-    /// Hardware Workspace present failed: keep a desktop switcher so the
-    /// user is not stuck with a dimmed mirror and no return control.
+
+
     private var forceFloatingSwitcher = false
     private(set) var displayPosition = TouchBarPreferences.displayPosition
     var onPixelSizeChanged: ((CGSize) -> Void)?
     var onCustomTopLeftChanged: ((CGPoint) -> Void)?
-    /// Opens the settings window (custom apps are managed there).
+
     var onOpenSettings: (() -> Void)?
-    /// Fires after OpenUsage pools refresh so Settings can list subscriptions.
+
     var onQuotaProvidersChanged: (() -> Void)?
 
     init() {
@@ -317,7 +316,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             forPixelSize: TouchBarPreferences.mirrorPixelSize,
             backingScaleFactor: scale
         )
-        // Switcher is either physical Touch Bar or floating window (no attached rail).
+
         let initialRootSize = TouchBarWindowMetrics.rootSize(
             forMirrorSize: initialMirrorSize
         )
@@ -338,8 +337,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        // Pure display: mouse events pass through to apps behind the mirror.
-        // Reposition via settings (display position / custom coordinates), not drag.
+
+
         panel.isMovableByWindowBackground = false
         panel.ignoresMouseEvents = true
         panel.acceptsMouseMovedEvents = true
@@ -351,7 +350,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.contentView = rootView
-        // Always record frames so "上次关闭时的位置" can restore later.
+
         panel.setFrameAutosaveName(TouchBarPreferences.mirrorWindowAutosaveName)
         var restoredFrame = false
         if TouchBarPreferences.displayPosition.restoresAutosavedFrame {
@@ -398,7 +397,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     func start() {
         isRunning = true
-        // Autosave restore only when setting is "上次关闭时的位置".
+
         if !(displayPosition.restoresAutosavedFrame && hasRestoredFrame) {
             positionWindow()
         }
@@ -477,7 +476,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         positionWindow()
     }
 
-    /// Current top-left of the mirror window in AppKit screen points.
+
     var customTopLeft: CGPoint {
         guard let window else {
             return TouchBarPreferences.hasCustomTopLeft
@@ -495,12 +494,12 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// Re-hide the mirror switcher close box after the app becomes frontmost.
+
     func suppressPhysicalSwitcherCloseBox() {
         switcherTouchBarController.suppressCloseBox()
     }
 
-    /// Ensure the mirror-mode physical switcher is present (and close box hidden).
+
     func ensurePhysicalSwitcherPresented() {
         presentPhysicalSwitcherIfNeeded()
         suppressPhysicalSwitcherCloseBox()
@@ -551,8 +550,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func setWorkspaceSwitcherDisplayMode(_ mode: WorkspaceSwitcherDisplayMode) {
-        // Software mode cannot host a physical switcher; force floating without
-        // fighting the user on every open — still allow storing .floating.
+
+
         let modeToStore: WorkspaceSwitcherDisplayMode
         if usesSoftwareWorkspace {
             modeToStore = .floating
@@ -620,7 +619,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 y: visibleFrame.midY - frame.height / 2
             )
         case .lastSaved:
-            // Caller already tried autosave restore; fall back to bottom.
+
             origin = NSPoint(x: mirrorX, y: screen.frame.minY)
         case .custom:
             let topLeft: CGPoint
@@ -634,7 +633,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 TouchBarPreferences.customTopLeft = topLeft
                 onCustomTopLeftChanged?(topLeft)
             }
-            // AppKit window origin is bottom-left.
+
             origin = NSPoint(x: topLeft.x, y: topLeft.y - frame.height)
         }
         window.setFrameOrigin(origin)
@@ -678,17 +677,11 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.workspaceView.onToggleWorkspace = { [weak self] in
             self?.toggleWorkspace()
         }
-        rootView.workspaceView.onOpenProvider = { [weak self] provider in
-            self?.openProvider(provider)
-        }
         rootView.workspaceView.onOpenSettings = { [weak self] in
             self?.onOpenSettings?()
         }
         rootView.workspaceView.onOpenCustomApp = { [weak self] app in
             self?.openCustomWorkspaceApp(app)
-        }
-        workspaceTouchBarController.onOpenProvider = { [weak self] provider in
-            self?.openProvider(provider)
         }
         workspaceTouchBarController.onOpenSettings = { [weak self] in
             self?.onOpenSettings?()
@@ -706,7 +699,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             self?.toggleWorkspace()
         }
         switcherTouchBarController.onPresentationInterrupted = { [weak self] in
-            // Close-box / system dismissal while still in mirror mode.
+
             self?.presentPhysicalSwitcherIfNeeded()
         }
     }
@@ -787,7 +780,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         switcherTouchBarController.present()
     }
 
-    /// Software path: Workspace lives on the desktop mirror (clickable tray).
+
     private func enterSoftwareWorkspace(isLaunch: Bool) {
         beginWorkspaceSession()
         if !isLaunch {
@@ -878,10 +871,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     private func handleWorkspacePresentationInterrupted() {
         guard rootView.scene == .workspace else { return }
-        // Software mode never presents a system modal; ignore hardware interrupts.
+
         guard !usesSoftwareWorkspace else { return }
-        // Sleep also detaches the modal. Remember we were in Workspace so wake
-        // can restore it instead of treating this as a user switch to mirror.
+
+
         resumeToWorkspace = true
         cancelWorkspaceAsyncWork(invalidateSession: true)
         rootView.beginSceneTransitionCover()
@@ -950,51 +943,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         applyQuotaPlate()
     }
 
-    private func openProvider(_ provider: QuotaProviderID) {
-        if let app = QuotaProviderLaunch.matchingCustomApp(
-            provider: provider,
-            apps: WorkspacePreferences.customApps
-        ) {
-            openCustomWorkspaceApp(app)
-            return
-        }
-        let generation = workspaceGeneration
-        recommendedLaunchTask?.cancel()
-        recommendedLaunchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.canUpdateWorkspace(from: generation) {
-                    self.recommendedLaunchTask = nil
-                }
-            }
-            let workspace = NSWorkspace.shared
-            for bundleIdentifier in provider.bundleIdentifiers {
-                if let url = workspace.urlForApplication(
-                    withBundleIdentifier: bundleIdentifier
-                ) {
-                    try? await CustomWorkspaceAppLauncher.openApplication(at: url)
-                    return
-                }
-            }
-            for name in provider.applicationNames {
-                let candidates = [
-                    URL(fileURLWithPath: "/Applications/\(name).app"),
-                    FileManager.default.homeDirectoryForCurrentUser
-                        .appendingPathComponent("Applications/\(name).app"),
-                ]
-                if let url = candidates.first(where: {
-                    FileManager.default.fileExists(atPath: $0.path)
-                }) {
-                    try? await CustomWorkspaceAppLauncher.openApplication(at: url)
-                    return
-                }
-            }
-            if let fallback = provider.fallbackURL {
-                workspace.open(fallback)
-            }
-        }
-    }
-
     private func openCustomWorkspaceApp(_ app: CustomWorkspaceApp) {
         let generation = workspaceGeneration
         Task { @MainActor [weak self] in
@@ -1015,8 +963,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func cancelWorkspaceAsyncWork(invalidateSession: Bool) {
-        recommendedLaunchTask?.cancel()
-        recommendedLaunchTask = nil
         quotaRefreshTask?.cancel()
         quotaRefreshTask = nil
         if invalidateSession {
@@ -1065,9 +1011,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                         if self.rootView.scene == .workspace,
                            !self.usesSoftwareWorkspace
                         {
-                            // Tear down the full-width modal and restore
-                            // PresentationMode, but do not switch the scene to
-                            // mirror — sleep is not a user toggle.
+
+
+
                             self.workspaceTouchBarController.dismiss()
                         }
                         self.switcherTouchBarController.dismiss()

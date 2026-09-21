@@ -4,9 +4,9 @@ enum TouchBarDisplayPosition: String, CaseIterable {
     case bottom
     case top
     case center
-    /// Restore AppKit autosaved mirror frame origin on launch.
+
     case lastSaved
-    /// Use explicit top-left coordinates from preferences.
+
     case custom
 
     var title: String {
@@ -64,14 +64,14 @@ enum TouchBarPreferences {
         }
     }
 
-    /// Whether the user has explicitly saved a custom top-left origin.
+
     static var hasCustomTopLeft: Bool {
         UserDefaults.standard.object(forKey: customTopLeftXKey) != nil
             && UserDefaults.standard.object(forKey: customTopLeftYKey) != nil
     }
 
-    /// Top-left of the mirror window in AppKit screen points
-    /// (`y` increases upward).
+
+
     static var customTopLeft: CGPoint {
         get {
             CGPoint(
@@ -225,7 +225,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
         switcherDisplayModePopup.selectItem(
             at: WorkspaceSwitcherDisplayMode.allCases.firstIndex(of: currentMode) ?? 0
         )
-        // No physical bar: only the floating switcher is available.
+
         if TouchBarHardwareCapability.usesSoftwareWorkspace,
             let touchBarItem = switcherDisplayModePopup.item(
                 at: WorkspaceSwitcherDisplayMode.allCases.firstIndex(of: .touchBar) ?? -1

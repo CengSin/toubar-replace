@@ -4,21 +4,21 @@ import TouchBarPrivateAPI
 enum WorkspaceTouchBarLayout {
     static let presentationMode = "app"
     static let placement: Int64 = 1
-    /// Soft floor so a tiny settings width still yields a usable principal item.
+
     static let minimumContentWidth: CGFloat = 400
-    /// DFR-class full Function Row width (~1085×30 pt). Used for strip geometry
-    /// smoke tests; runtime preferred width is capped separately (see
-    /// ``maximumContentWidth``) so trailing custom slots are not clipped.
+
+
+
     static let designReferenceBarWidth: CGFloat = 1_010
-    /// Cap preferred item width below full DFR width. Mirror settings can be
-    /// larger (scaled desktop viewport); even 1085 can overflow system chrome
-    /// on the Function Row and clip the trailing custom slot.
+
+
+
     static let maximumContentWidth: CGFloat = 1_010
 
-    /// Preferred Workspace item size in points from mirror settings (pixels ÷ scale),
-    /// clamped to ``[minimumContentWidth, maximumContentWidth]``.
-    /// Default mirror `2300×70` @2x → width capped to `1010`, height `35`
-    /// (height is only used by the mirror window; TB chrome stays 30pt).
+
+
+
+
     static func preferredContentSize(
         mirrorPixelSize: CGSize = TouchBarPreferences.mirrorPixelSize,
         backingScaleFactor: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
@@ -47,13 +47,13 @@ enum WorkspaceTouchBarLayout {
         ).width
     }
 
-    /// Return control sits outside the 10-unit grid (design v3).
-    /// Physical Workspace hosts this as a **separate** NSTouchBar item so the
-    /// system close-box slot cannot swallow its hits.
+
+
+
     static let switcherWidth: CGFloat = 44
     static let switcherContentGap: CGFloat = 10
 
-    /// Remaining width for the quota|apps tray after the dedicated back item.
+
     static func preferredTrayWidth(
         mirrorPixelSize: CGSize = TouchBarPreferences.mirrorPixelSize,
         backingScaleFactor: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
@@ -68,24 +68,24 @@ enum WorkspaceTouchBarLayout {
         )
     }
 
-    /// Design grid on the tray: Quota 7/10 | Apps 3/10.
+
     static let totalUnits = 10
     static let quotaUnits = 7
     static let appsUnits = 3
 
-    /// Hairline between zones on the continuous tray.
+
     static let zoneDividerWidth: CGFloat = 1
-    /// Inset of quota plate / icon slots inside each zone.
+
     static let zoneContentInset: CGFloat = 6
-    /// Vertical inset of icon slots inside the tray control height.
+
     static let slotVerticalInset: CGFloat = 3
-    /// Extra right pad inside the tray so the last app slot is not clipped
-    /// by system Function Row chrome.
+
+
     static let trayTrailingSafeInset: CGFloat = 12
 
-    /// Three-bar groups keep at least this width; overflow scrolls.
+
     static let quotaGroupMinimumWidth: CGFloat = 144
-    /// Two-bar groups (no 5h window) stay narrower than three-bar ones.
+
     static let quotaGroupTwoBarMinimumWidth: CGFloat = 104
     static let quotaGroupSpacing: CGFloat = 4
 
@@ -93,7 +93,7 @@ enum WorkspaceTouchBarLayout {
         showsFiveHour ? quotaGroupMinimumWidth : quotaGroupTwoBarMinimumWidth
     }
 
-    /// Split tray into quota | apps at a user-configured share.
+
     static func trayZoneFrames(
         tray: NSRect,
         quotaShare: Double = WorkspacePreferences.quotaShare
@@ -118,7 +118,7 @@ enum WorkspaceTouchBarLayout {
         return (quota, apps)
     }
 
-    /// Full-bar strip: switcher (outside grid) + continuous tray.
+
     static func stripFrames(
         in bounds: NSRect
     ) -> (
@@ -154,7 +154,7 @@ enum WorkspaceTouchBarLayout {
         return (switcher, tray, zones.quota, zones.apps)
     }
 
-    /// Full-width tray when switcher is not embedded (mirror fallback bar).
+
     static func trayFrame(in bounds: NSRect) -> NSRect {
         let height = min(
             WorkspaceTouchBarStyle.controlHeight,
@@ -169,13 +169,13 @@ enum WorkspaceTouchBarLayout {
         )
     }
 
-    /// Slot count for apps zone: empty label, or apps + settings button.
+
     static func customSlotCount(appCount: Int) -> Int {
         let count = max(0, min(appCount, CustomWorkspaceAppList.maxCount))
         return count == 0 ? 1 : count + 1
     }
 
-    /// Equal column width inside a zone for `slotCount` items.
+
     static func equalSlotWidth(
         regionWidth: CGFloat,
         slotCount: Int,
@@ -186,8 +186,8 @@ enum WorkspaceTouchBarLayout {
         return max(floor((regionWidth - gaps) / CGFloat(count)), 1)
     }
 
-    /// Frames for equally spaced slots inside a region (left → right).
-    /// Region should already be inset for zone padding when used for icons.
+
+
     static func slotFrames(
         in region: NSRect,
         slotCount: Int,
@@ -220,14 +220,14 @@ enum WorkspaceTouchBarLayout {
         }
     }
 
-    /// Inner rect of a zone after horizontal breathing room.
+
     static func zoneContentRect(_ region: NSRect) -> NSRect {
         region.insetBy(dx: zoneContentInset, dy: 0)
     }
 
-    /// Per-group widths. Two-bar cards use a smaller minimum than three-bar
-    /// cards. Leftover plate width goes to three-bar groups first so two-bar
-    /// ones stay compact; if every group is two-bar, they share leftover equally.
+
+
+
     static func quotaScrollArrangement(
         plateWidth: CGFloat,
         showsFiveHourPerGroup: [Bool]
@@ -243,8 +243,8 @@ enum WorkspaceTouchBarLayout {
         if contentMin > width + 0.5 {
             return (widths, contentMin, true)
         }
-        // Two-bar cards keep their compact width. Only three-bar cards absorb
-        // leftover plate space; if every card is two-bar, pack left.
+
+
         let threeBarIndices = flags.indices.filter { flags[$0] }
         guard !threeBarIndices.isEmpty else {
             return (widths, contentMin, false)
@@ -257,7 +257,7 @@ enum WorkspaceTouchBarLayout {
         return (widths, width, false)
     }
 
-    /// Convenience when every group shows three bars.
+
     static func quotaScrollArrangement(
         plateWidth: CGFloat,
         groupCount: Int
@@ -268,8 +268,8 @@ enum WorkspaceTouchBarLayout {
         )
     }
 
-    /// Tray-only regions (quota | apps). Prefer `stripFrames` when
-    /// the return button is in the same view.
+
+
     static func regionFrames(
         in bounds: NSRect
     ) -> (
@@ -281,23 +281,23 @@ enum WorkspaceTouchBarLayout {
 }
 
 enum WorkspaceTouchBarStyle {
-    /// Outer padding of content item (switcher is a separate TB item).
+
     static let canvasInset: CGFloat = 4
-    /// Continuous tray under the 10-unit strip (design v2 soft surface).
+
     static let trayBackground = NSColor(
         red: 18 / 255,
         green: 22 / 255,
         blue: 29 / 255,
         alpha: 1
     )
-    /// Quota plate + equal icon slots (same chrome weight).
+
     static let itemBackground = NSColor(
         red: 32 / 255,
         green: 39 / 255,
         blue: 49 / 255,
         alpha: 1
     )
-    /// Pressed chrome for tray slots (quota / apps / switcher).
+
     static let itemHighlightedBackground = NSColor.white.withAlphaComponent(0.22)
     static let itemHighlightBorderColor = NSColor.white.withAlphaComponent(0.32)
     static let dividerColor = NSColor.white.withAlphaComponent(0.10)
@@ -312,7 +312,7 @@ enum WorkspaceTouchBarStyle {
     static let controlHeight: CGFloat = 30
     static let cornerRadius: CGFloat = 7
     static let trayCornerRadius: CGFloat = 8
-    /// Gap between equal icon slots (design v2).
+
     static let itemSpacing: CGFloat = 6
     static let horizontalPadding: CGFloat = 12
     static let imageTitleSpacing: CGFloat = 7
@@ -340,7 +340,7 @@ enum WorkspaceTouchBarStyle {
         NSFont.systemFont(ofSize: 8, weight: .medium)
     }
 
-    /// Time-to-reset bar (distinct from remaining-quota white/amber).
+
     static let resetBarColor = NSColor(
         red: 120 / 255,
         green: 196 / 255,
@@ -364,18 +364,18 @@ enum WorkspaceTouchBarStyle {
         )
     }
 
-    /// Bundled brand mark for a quota provider.
-    /// Source files live under `Resources/AgentIcons/<name>.png`.
-    ///
-    /// Resolution order (do **not** use `Bundle.module` here):
-    /// - Packaged `.app`: `Contents/Resources/AgentIcons/` (see `Packaging/build-app.sh`)
-    /// - `swift run` / release binary: SPM resource dir next to the executable
-    ///   (`ToubarReplace_ToubarReplace.bundle`, flattened by `.process`)
-    ///
-    /// `Bundle.module` for an `executableTarget` looks for the resource bundle
-    /// at `Bundle.main.bundleURL` (the `.app` root) and `fatalError`s if missing.
-    /// That path is invalid for codesigned apps, and SPM's flat `.bundle` is not
-    /// a codesignable package — so packaging copies icons into main Resources only.
+
+
+
+
+
+
+
+
+
+
+
+
     @MainActor
     static func providerIcon(for id: QuotaProviderID) -> NSImage? {
         if let resourceName = id.iconResourceName,
@@ -404,7 +404,7 @@ enum WorkspaceTouchBarStyle {
                 .appendingPathComponent("AgentIcons", isDirectory: true)
                 .appendingPathComponent("\(resourceName).png"),
         ]
-        // SPM layout: resource bundle sits beside the executable (not under .app root).
+
         if let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() {
             let spmBundle = exeDir.appendingPathComponent(
                 "ToubarReplace_ToubarReplace.bundle",
@@ -489,8 +489,8 @@ enum WorkspaceTouchBarStyle {
     }
 }
 
-/// Borderless tray control with reliable Touch Bar target/action and press chrome.
-/// Custom-styled `NSButton`s otherwise show no highlight when `isBordered` is false.
+
+
 @MainActor
 final class WorkspaceChromeButton: NSButton {
     override init(frame frameRect: NSRect) {
@@ -549,8 +549,8 @@ final class WorkspaceChromeButton: NSButton {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Super tracks press/release and drives highlight + action. Force chrome
-        // around the call so borderless layer buttons visibly depress on TB/desktop.
+
+
         refreshChrome()
         super.mouseDown(with: event)
         refreshChrome()
@@ -574,8 +574,8 @@ final class WorkspaceChromeButton: NSButton {
     }
 }
 
-/// Physical-bar return control used as `escapeKeyReplacementItemIdentifier`.
-/// Must not be a second default item: that blacks out the Workspace tray.
+
+
 @MainActor
 final class WorkspaceReturnItemView: NSView {
     var onActivate: (() -> Void)?
@@ -644,8 +644,8 @@ final class WorkspaceTouchBarContentView: NSView {
         self.quotaView = quotaView
         self.customView = customView
         super.init(frame: .zero)
-        // Tray item: hug low so the principal item fills remaining Function Row
-        // width after the dedicated back item.
+
+
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.required, for: .vertical)
@@ -671,8 +671,8 @@ final class WorkspaceTouchBarContentView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        // Sole default item, but the return control lives in the escape slot.
-        // Prefer the tray width, not full DFR width, or the settings slot clips.
+
+
         NSSize(
             width: WorkspaceTouchBarLayout.preferredTrayWidth(),
             height: WorkspaceTouchBarStyle.controlHeight
@@ -738,7 +738,7 @@ final class WorkspaceTouchBarContentView: NSView {
     }
 }
 
-/// Custom-apps zone: empty "自定义app" or icons + settings — equal slots.
+
 @MainActor
 final class WorkspaceCustomAppsView: NSView {
     private let emptyButton = WorkspaceChromeButton()
@@ -747,7 +747,7 @@ final class WorkspaceCustomAppsView: NSView {
     private var apps: [CustomWorkspaceApp] = []
     private var slotViews: [NSView] = []
 
-    /// Opens app settings to manage pinned custom apps (add / replace / remove).
+
     var onOpenSettings: (() -> Void)?
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
 
@@ -822,8 +822,8 @@ final class WorkspaceCustomAppsView: NSView {
         settingsButton.isHidden ? .zero : settingsButton.frame
     }
 
-    /// Spread controls evenly across the configured apps zone.
-    /// `region` must be in this view's coordinate space (usually `bounds`).
+
+
     func layoutEqualSlots(in region: NSRect) {
         guard region.width > 1, region.height > 1, !slotViews.isEmpty else {
             return
@@ -869,7 +869,7 @@ final class WorkspaceCustomAppsView: NSView {
     }
 }
 
-/// One quota metric: vertical bar or percent text, with a short caption.
+
 @MainActor
 final class QuotaVerticalBarView: NSView {
     private let track = NSView()
@@ -1021,9 +1021,6 @@ final class QuotaProviderGroupView: NSView {
     private let weeklyBar = QuotaVerticalBarView()
     private let resetBar = QuotaVerticalBarView()
     private(set) var state: QuotaProviderGroupState?
-    private var isPressed = false
-
-    var onActivate: ((QuotaProviderID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1041,36 +1038,12 @@ final class QuotaProviderGroupView: NSView {
         addSubview(weeklyBar)
         addSubview(resetBar)
         setAccessibilityElement(true)
-        setAccessibilityRole(.button)
+        setAccessibilityRole(.group)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(point) ? self : nil
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isPressed = true
-        refreshChrome()
-        super.mouseDown(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        let wasPressed = isPressed
-        isPressed = false
-        refreshChrome()
-        if wasPressed, bounds.contains(convert(event.locationInWindow, from: nil)),
-            let provider = state?.provider
-        {
-            onActivate?(provider)
-        }
-        super.mouseUp(with: event)
     }
 
     func display(_ state: QuotaProviderGroupState) {
@@ -1085,12 +1058,12 @@ final class QuotaProviderGroupView: NSView {
                                              valueText: balance.valueText, isHighlighted: false),
                               fillColor: WorkspaceTouchBarStyle.resetBarColor, style: .percent)
             toolTip = state.tooltip
-            setAccessibilityLabel("打开 \(state.title)，\(balance.caption) \(balance.valueText)")
+            setAccessibilityLabel("\(state.title) 额度，\(balance.caption) \(balance.valueText)")
             refreshChrome()
             needsLayout = true
             return
         }
-        // No 5h window → hide the bar entirely (do not show "—").
+
         fiveHourBar.isHidden = !state.fiveHour.isAvailable
         if state.fiveHour.isAvailable {
             fiveHourBar.display(
@@ -1115,7 +1088,7 @@ final class QuotaProviderGroupView: NSView {
             textColor: WorkspaceTouchBarStyle.primaryTextColor
         )
         toolTip = state.tooltip
-        setAccessibilityLabel("打开 \(state.title)")
+        setAccessibilityLabel("\(state.title) 额度")
         refreshChrome()
         needsLayout = true
     }
@@ -1188,10 +1161,10 @@ final class QuotaProviderGroupView: NSView {
     private func refreshChrome() {
         WorkspaceTouchBarStyle.applyItemChrome(
             to: layer,
-            highlighted: isPressed,
+            highlighted: false,
             enabled: true
         )
-        if state?.isRecommended == true, !isPressed {
+        if state?.isRecommended == true {
             layer?.borderWidth = 1
             layer?.borderColor = WorkspaceTouchBarStyle.amberAccent
                 .withAlphaComponent(0.7).cgColor
@@ -1210,8 +1183,6 @@ final class QuotaPlateView: NSView {
     private var pendingScrollReset = false
     private(set) var contentWidth: CGFloat = 0
     private(set) var needsHorizontalScroll = false
-
-    var onOpenProvider: ((QuotaProviderID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1274,9 +1245,6 @@ final class QuotaPlateView: NSView {
         toolTip = state.isEmpty ? "暂无订阅额度数据" : nil
         for group in state.groups {
             let view = QuotaProviderGroupView()
-            view.onActivate = { [weak self] provider in
-                self?.onOpenProvider?(provider)
-            }
             view.display(group)
             documentView.addSubview(view)
             groupViews.append(view)
@@ -1373,9 +1341,9 @@ enum WorkspacePresentationModePolicy {
         guard currentMode == workspaceMode else {
             return .preserveCurrent
         }
-        // "app" as the saved previous mode is our own Workspace write, not a
-        // user choice to hide Control Strip. Restoring it would leave 显示功能栏
-        // off after switching to mirror.
+
+
+
         if hadPreviousMode, let previousMode, previousMode != workspaceMode {
             return .set(previousMode)
         }
@@ -1427,7 +1395,6 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     private var detachmentTask: Task<Void, Never>?
     private(set) var isPresented = false
 
-    var onOpenProvider: ((QuotaProviderID) -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
     var onPresentationInterrupted: (() -> Void)?
@@ -1436,10 +1403,10 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     override init() {
         super.init()
         touchBar.delegate = self
-        // Return lives in the system escape/close slot so it is a real
-        // clickable control. It must NOT also be a default item: two default
-        // items make system-modal placement 1 drop the principal view and
-        // leave a black Function Row (only the left chevron remains).
+
+
+
+
         touchBar.escapeKeyReplacementItemIdentifier = ItemIdentifier.back
         touchBar.defaultItemIdentifiers = [ItemIdentifier.content]
         touchBar.principalItemIdentifier = ItemIdentifier.content
@@ -1453,10 +1420,6 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         }
         returnView.onWindowAttachmentChanged = { [weak self] attached in
             self?.handleWindowAttachmentChanged(attached)
-        }
-
-        quotaPlate.onOpenProvider = { [weak self] provider in
-            self?.onOpenProvider?(provider)
         }
 
         customAppsView.onOpenSettings = { [weak self] in
@@ -1501,8 +1464,8 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         TouchBarPresentationPreferences.setCurrentMode(
             WorkspaceTouchBarLayout.presentationMode
         )
-        // Do not call TBRHideSystemModalCloseButton here: it hides the first
-        // Function Row NSButton, which is now our escape-replacement return.
+
+
     }
 
     func dismiss() {
@@ -1554,9 +1517,9 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
             contentView.heightAnchor.constraint(
                 equalToConstant: WorkspaceTouchBarStyle.controlHeight
             ).isActive = true
-            // Escape-slot return is a separate item; this view is tray-only.
-            // Cap at tray width so the trailing settings slot is not clipped
-            // by Function Row chrome (full 1010 still includes the back item).
+
+
+
             let preferredWidthValue = WorkspaceTouchBarLayout.preferredTrayWidth()
             let minWidth = contentView.widthAnchor.constraint(
                 greaterThanOrEqualToConstant: min(

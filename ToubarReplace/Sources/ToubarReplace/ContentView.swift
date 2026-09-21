@@ -42,8 +42,22 @@ enum TouchBarHoverOpacity {
     static let normal: CGFloat = 1
     static let hovered: CGFloat = 0.3
 
-    static func targetAlpha(isMouseInside: Bool) -> CGFloat {
-        isMouseInside ? hovered : normal
+    static func targetAlpha(isMouseInside: Bool, overlapsOtherApp: Bool = false) -> CGFloat {
+        isMouseInside || overlapsOtherApp ? hovered : normal
+    }
+
+    static func screenBounds(windowFrame: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: windowFrame.minX,
+            y: primaryScreenHeight - windowFrame.maxY,
+            width: windowFrame.width,
+            height: windowFrame.height
+        )
+    }
+
+    static func overlaps(windowBounds: CGRect, otherBounds: CGRect) -> Bool {
+        let intersection = windowBounds.intersection(otherBounds)
+        return !intersection.isNull && intersection.width > 0 && intersection.height > 0
     }
 
     static func isMouseInside(
@@ -87,6 +101,8 @@ final class TouchBarHoverOpacityController {
     private weak var window: NSWindow?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private var overlapTimer: Timer?
+    private var overlapsOtherApp = false
 
     init(window: NSWindow) {
         self.window = window
@@ -94,11 +110,26 @@ final class TouchBarHoverOpacityController {
 
     func start() {
         installMonitorsIfNeeded()
+        updateOverlap()
+        if overlapTimer == nil {
+            let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateOverlap()
+                    self?.refresh()
+                }
+            }
+            timer.tolerance = 0.1
+            RunLoop.main.add(timer, forMode: .common)
+            overlapTimer = timer
+        }
         refresh()
     }
 
     func stop() {
         removeMonitors()
+        overlapTimer?.invalidate()
+        overlapTimer = nil
+        overlapsOtherApp = false
         apply(TouchBarHoverOpacity.normal)
     }
 
@@ -111,7 +142,35 @@ final class TouchBarHoverOpacityController {
             windowFrame: window.frame,
             mouseLocation: NSEvent.mouseLocation
         )
-        apply(TouchBarHoverOpacity.targetAlpha(isMouseInside: inside))
+        apply(TouchBarHoverOpacity.targetAlpha(
+            isMouseInside: inside, overlapsOtherApp: overlapsOtherApp
+        ))
+    }
+
+    private func updateOverlap() {
+        guard let window, window.isVisible,
+            let primaryScreenHeight = NSScreen.screens.first?.frame.height,
+            let windows = CGWindowListCopyWindowInfo(
+                [.optionOnScreenBelowWindow, .excludeDesktopElements],
+                CGWindowID(window.windowNumber)
+            ) as? [[String: Any]]
+        else {
+            overlapsOtherApp = false
+            return
+        }
+        let bounds = TouchBarHoverOpacity.screenBounds(
+            windowFrame: window.frame, primaryScreenHeight: primaryScreenHeight
+        )
+        overlapsOtherApp = windows.contains { info in
+            guard let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                pid != ProcessInfo.processInfo.processIdentifier,
+                let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0,
+                let rawBounds = info[kCGWindowBounds as String] as? [String: Any],
+                let otherBounds = CGRect(dictionaryRepresentation: rawBounds as CFDictionary)
+            else { return false }
+            return TouchBarHoverOpacity.overlaps(windowBounds: bounds, otherBounds: otherBounds)
+        }
     }
 
     private func installMonitorsIfNeeded() {

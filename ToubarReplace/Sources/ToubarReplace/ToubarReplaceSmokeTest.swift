@@ -1117,8 +1117,8 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            QuotaRefreshSchedule.interval == 30 * 60,
-            "quota fetch and reorder must run about every 30 minutes",
+            QuotaRefreshSchedule.interval == 5 * 60,
+            "quota fetch and reorder must run about every 5 minutes",
             failures: &failures
         )
         expect(
@@ -1151,6 +1151,29 @@ enum ToubarReplaceSmokeTest {
                     mouseLocation: CGPoint(x: 50, y: 10)
                 ),
             "hover opacity must follow the desktop window frame, not physical Touch Bar",
+            failures: &failures
+        )
+        expect(
+            TouchBarHoverOpacity.targetAlpha(isMouseInside: false, overlapsOtherApp: true) == 0.3
+                && TouchBarHoverOpacity.targetAlpha(isMouseInside: true, overlapsOtherApp: true) == 0.3,
+            "overlapping another app must dim the desktop bar without mouse hover",
+            failures: &failures
+        )
+        let overlapBounds = TouchBarHoverOpacity.screenBounds(
+            windowFrame: CGRect(x: -200, y: -100, width: 300, height: 35),
+            primaryScreenHeight: 900
+        )
+        expect(
+            overlapBounds == CGRect(x: -200, y: 965, width: 300, height: 35)
+                && TouchBarHoverOpacity.overlaps(
+                    windowBounds: overlapBounds,
+                    otherBounds: CGRect(x: -100, y: 900, width: 800, height: 200)
+                )
+                && !TouchBarHoverOpacity.overlaps(
+                    windowBounds: overlapBounds,
+                    otherBounds: CGRect(x: 100, y: 965, width: 800, height: 200)
+                ),
+            "overlap detection must handle secondary displays and exclude touching edges",
             failures: &failures
         )
         if let firstImage = makeTestImage(width: 1),

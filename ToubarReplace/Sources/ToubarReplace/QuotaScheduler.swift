@@ -230,7 +230,7 @@ struct QuotaDecision: Equatable, Sendable {
 
 enum QuotaRefreshSchedule {
 
-    static let interval: TimeInterval = 30 * 60
+    static let interval: TimeInterval = 5 * 60
 }
 
 

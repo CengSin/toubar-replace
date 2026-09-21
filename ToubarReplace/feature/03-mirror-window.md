@@ -14,11 +14,11 @@
     - 无硬件状态："当前 Mac 无物理 Touch Bar\n点击切换按钮打开 Workspace，查看额度并启动应用"
     - 错误状态："\(error.localizedDescription)\n\n恢复命令（终端）：\n\(ToubarReplaceAppInfo.recoveryCommands)"
   - 切换过渡遮罩：`MirrorSceneTransition`（`settleDuration: 221ms`, `fadeDuration: 0.12s`）
-  - 鼠标悬停透明度控制器：`TouchBarHoverOpacityController`（正常状态 `alpha = 1.0`，鼠标悬停 `alpha = 0.3`）
+  - 鼠标悬停透明度控制器：`TouchBarHoverOpacityController`（正常状态 `alpha = 1.0`，鼠标悬停或覆盖其他 App 窗口时 `alpha = 0.3`）
 - 子功能：
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
   - 鼠标穿透点击：在镜像场景下 `ignoresMouseEvents = true`，鼠标点击穿透至桌面底层应用程序，窗口不可随意拖拽
-  - 鼠标悬停半透明：全局鼠标监视检测，进入窗口区域立即淡化至 30% 透明度，离开后恢复 100%，避免遮挡屏幕内容
+  - 鼠标悬停半透明：全局鼠标监视检测，进入窗口区域立即淡化至 0.3 不透明度；每 0.5 秒检测主条与下方其他 App 可见普通窗口的重叠，重叠时保持 0.3（包括全屏窗口），鼠标离开且无重叠后恢复 1.0，避免遮挡屏幕内容
   - 平滑无感场景切换：物理/软件模式切换时冻结最后一帧（cover），等待 221ms 系统 Function Row 重排稳定后执行 0.12s 渐隐淡出，遮盖系统重排脏帧
   - 故障提示与重置引导：画面出现黑屏或系统 Control Strip 异常时，自动展示终端恢复命令
 - 前置条件：

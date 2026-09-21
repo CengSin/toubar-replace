@@ -1,6 +1,11 @@
 #!/bin/zsh
 set -euo pipefail
 
+if [[ "${CI:-false}" == "true" || "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+  echo "跳过 Swift 注释检查：此检查仅在本地执行。"
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 COMMENT_CHECKER="${SWIFT_COMMENT_CHECKER:-${HOME}/.agents/skills/swift-comment-checker/scripts/check-comments.sh}"

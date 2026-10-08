@@ -18,9 +18,11 @@
   - 托盘容器：`trayView`（全黑主题使用 `WorkspaceTouchBarStyle.trayBackground`；桌面毛玻璃主题使用透明托盘叠放于原生玻璃上）
   - 桌面外观策略：`DesktopThemePolicy`、`WorkspaceBarView.apply(theme:)`（原生毛玻璃工作台文字与按钮适配明暗外观）
   - 物理横滑状态：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`
+  - Fn 状态与内容切换：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.isFunctionKeyPressed`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarSurfaceView.onGlassFrameDisplayed`
   - 分区隔离线：`zoneDivider`（1pt 垂直分割线，颜色 `WorkspaceTouchBarStyle.dividerColor`）
 - 子功能：
   - 桌面毛玻璃工作台：macOS 26 下在设置中手动启用，`WorkspaceBarView` 在连续圆角玻璃底板上绘制同源额度和 App 控件，保留彩色额度与琥珀推荐框。有物理栏时，手指在 Touch Bar 上操作，桌面原生用量区同步物理横滑位置与溢出布局，并保持鼠标穿透；软件回退工作台接收桌面操作。关闭毛玻璃后，有物理栏设备显示原始硬件镜像
+  - Fn 临时显示：有物理栏且开启毛玻璃时，按住 Fn 后保持原生工作台可见，新的系统功能键捕获完成玻璃合成后一次切换显示，旧 Workspace 帧按画面签名过滤；松开后立即恢复原生工作台。按住期间开启毛玻璃时，已捕获的功能键画面完成合成后接入；返回镜像时正常显示功能键画面。软件工作台继续显示可点击的额度和 App 控件
   - 独立 Escape 返回机制：硬件栏使用专用的 Escape 槽位替换键，软件栏嵌入左侧回退键，轻触即可平滑退回镜像模式
   - 全宽托盘分流：托盘按照用户设定的 `quotaShare` 比例（默认 70%）分为左侧额度用量区与右侧常用应用区
   - 双硬件架构兼容：

@@ -286,6 +286,7 @@ final class TouchBarSurfaceView: NSView {
     private var deliveredSequence: UInt64 = 0
     private var renderingEnabled = true
     private var latestFrameIsComposed = false
+    var onGlassFrameDisplayed: (() -> Void)?
     var hasVisibleDiagnostic: Bool { !statusLabel.isHidden }
     private lazy var glassPipeline = MirrorGlassFramePipeline { [weak self] image, token in
         guard let self, self.desktopTheme == .glass,
@@ -294,6 +295,7 @@ final class TouchBarSurfaceView: NSView {
         self.deliveredSequence = token.sequence
         self.displayedFrame = image
         self.imageView.layer?.contents = image
+        self.onGlassFrameDisplayed?()
     }
 
     override init(frame frameRect: NSRect) {
@@ -376,14 +378,14 @@ final class TouchBarSurfaceView: NSView {
         if let image = latestOriginalFrame { display(image: image, alreadyComposed: latestFrameIsComposed, keepsDiagnostic: true) }
     }
 
-    func setRenderingEnabled(_ enabled: Bool) {
+    func setRenderingEnabled(_ enabled: Bool, reprocessRetainedFrame: Bool = true) {
         guard renderingEnabled != enabled else { return }
         renderingEnabled = enabled
         frameGeneration &+= 1
         glassPipeline.discardPending()
         displayedFrame = nil
         imageView.layer?.contents = nil
-        if enabled, let image = latestOriginalFrame {
+        if enabled && reprocessRetainedFrame, let image = latestOriginalFrame {
             display(image: image, alreadyComposed: latestFrameIsComposed, keepsDiagnostic: true)
         }
     }
@@ -469,6 +471,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let desktopHost: DesktopGlassHostView
     private let capture: TouchBarCapture
     private let hoverOpacityController: TouchBarHoverOpacityController
+    private let functionKeyMonitor: TouchBarFunctionKeyMonitor
     private let quotaStore = QuotaSnapshotStore()
     private let workspaceTouchBarController = WorkspaceTouchBarController()
     private let switcherTouchBarController = SwitcherTouchBarController()
@@ -548,8 +551,13 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         panel.setContentSize(initialRootSize)
 
         hoverOpacityController = TouchBarHoverOpacityController(window: panel)
+        let functionKeyMonitor = TouchBarFunctionKeyMonitor { [weak rootView] isPressed in
+            rootView?.setFunctionKeyPressed(isPressed)
+        }
+        self.functionKeyMonitor = functionKeyMonitor
         let frameDelivery = TouchBarFrameDeliveryCoalescer {
-            [weak rootView] image in
+            [weak rootView, weak functionKeyMonitor] image in
+            functionKeyMonitor?.refresh()
             rootView?.displayCapture(image: image)
         }
         capture = TouchBarCapture(
@@ -585,6 +593,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.apply(theme: theme)
         hoverOpacityController.setTheme(theme)
         workspaceSwitcherWindowController?.apply(theme: theme)
+        updateFunctionKeyMonitoring()
     }
 
     @available(*, unavailable)
@@ -638,6 +647,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         switcherTouchBarController.dismiss()
         workspaceSwitcherWindowController?.window?.orderOut(nil)
         hoverOpacityController.stop()
+        functionKeyMonitor.stop()
         capture.stop()
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(center.removeObserver)
@@ -925,7 +935,18 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             scene: rootView.scene,
             showsWorkspaceFallback: rootView.showsWorkspaceFallback
         )
+        updateFunctionKeyMonitoring()
         hoverOpacityController.refresh()
+    }
+
+    private func updateFunctionKeyMonitoring() {
+        if isRunning && !isHardwareSessionPaused && !usesSoftwareWorkspace
+            && rootView.scene == .workspace
+            && !rootView.showsWorkspaceFallback {
+            functionKeyMonitor.start()
+        } else {
+            functionKeyMonitor.stop()
+        }
     }
 
     private func configureFloatingWorkspaceSwitcher() {
@@ -1233,6 +1254,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                                     == .workspace
                             )
                         self.isHardwareSessionPaused = true
+                        self.updateFunctionKeyMonitoring()
                         if self.rootView.scene == .workspace,
                            !self.usesSoftwareWorkspace
                         {
@@ -1258,6 +1280,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                     Task { @MainActor [weak self] in
                         guard let self, self.isRunning else { return }
                         self.isHardwareSessionPaused = false
+                        self.updateFunctionKeyMonitoring()
                         switch TouchBarResumePolicy.action(
                             usesSoftwareWorkspace: self.usesSoftwareWorkspace,
                             restoreWorkspace: self.resumeToWorkspace

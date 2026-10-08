@@ -381,6 +381,9 @@ final class TouchBarRootView: NSView {
     private var retainedMirrorAppearance: NSAppearance.Name?
     private var retainedMirrorSignature: TouchBarFrameSignature?
     private var workspaceCaptureSignature: TouchBarFrameSignature?
+    private var lastWorkspaceFrameSignature: TouchBarFrameSignature?
+    private var functionKeyFrameSignature: TouchBarFrameSignature?
+    private var functionKeyOriginalFrame: CGImage?
     private var mirrorCaptureGuardUntil: ContinuousClock.Instant?
     private var pendingMirrorCapture: CGImage?
     private(set) var isWaitingForMirrorCapture = false
@@ -388,25 +391,45 @@ final class TouchBarRootView: NSView {
     private(set) var showsWorkspaceFallback = false
     private(set) var desktopTheme: DesktopTheme = .black
     private(set) var hasCaptureDiagnostic = false
+    private(set) var isFunctionKeyPressed = false
+    private(set) var showsFunctionKeyCapture = false
 
     func displayCapture(image: CGImage) {
-        if desktopTheme == .glass {
-            if scene == .workspace {
-                if let signature = TouchBarFrameSignature(image: image),
+        if scene == .workspace && !showsWorkspaceFallback,
+           let signature = TouchBarFrameSignature(image: image) {
+            if isFunctionKeyPressed {
+                let isOldWorkspace = lastWorkspaceFrameSignature.map { signature.resembles($0) } == true
+                if desktopTheme == .glass && isOldWorkspace {
+                    if hasCaptureDiagnostic {
+                        hasCaptureDiagnostic = false
+                        surfaceView.clearFrame()
+                        updateContentVisibility()
+                    }
+                    return
+                }
+                if !isOldWorkspace {
+                    functionKeyOriginalFrame = image
+                    functionKeyFrameSignature = signature
+                }
+            } else if functionKeyFrameSignature.map({ !signature.resembles($0) }) ?? true {
+                lastWorkspaceFrameSignature = signature
+                if desktopTheme == .glass,
                    retainedMirrorSignature.map({ !signature.resembles($0) }) ?? true {
                     workspaceCaptureSignature = signature
                 }
-            } else if isWaitingForMirrorCapture || workspaceCaptureSignature != nil {
-                if let deadline = mirrorCaptureGuardUntil, ContinuousClock.now >= deadline {
-                    workspaceCaptureSignature = nil
-                    mirrorCaptureGuardUntil = nil
-                }
-                if let signature = TouchBarFrameSignature(image: image),
-                   workspaceCaptureSignature.map({ signature.resembles($0) }) == true { return }
-                if isWaitingForMirrorCapture {
-                    pendingMirrorCapture = image
-                    return
-                }
+            }
+        }
+        if desktopTheme == .glass && scene == .mirror
+            && (isWaitingForMirrorCapture || workspaceCaptureSignature != nil) {
+            if let deadline = mirrorCaptureGuardUntil, ContinuousClock.now >= deadline {
+                workspaceCaptureSignature = nil
+                mirrorCaptureGuardUntil = nil
+            }
+            if let signature = TouchBarFrameSignature(image: image),
+               workspaceCaptureSignature.map({ signature.resembles($0) }) == true { return }
+            if isWaitingForMirrorCapture {
+                pendingMirrorCapture = image
+                return
             }
         }
         hasCaptureDiagnostic = false
@@ -417,6 +440,7 @@ final class TouchBarRootView: NSView {
     func displayCapture(notice: TouchBarCaptureNotice) {
         cancelMirrorReturn()
         hasCaptureDiagnostic = true
+        showsFunctionKeyCapture = false
         updateContentVisibility()
         surfaceView.display(notice: notice)
     }
@@ -424,6 +448,7 @@ final class TouchBarRootView: NSView {
     func displayCapture(error: TouchBarCaptureError) {
         cancelMirrorReturn()
         hasCaptureDiagnostic = true
+        showsFunctionKeyCapture = false
         updateContentVisibility()
         surfaceView.display(error: error)
     }
@@ -438,6 +463,12 @@ final class TouchBarRootView: NSView {
     func apply(theme: DesktopTheme) {
         let changed = desktopTheme != theme
         desktopTheme = theme
+        if changed {
+            showsFunctionKeyCapture = false
+            if theme == .glass && scene == .workspace && !showsWorkspaceFallback {
+                surfaceView.setRenderingEnabled(false)
+            }
+        }
         layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
         surfaceView.apply(theme: theme)
         workspaceView.apply(theme: theme)
@@ -478,6 +509,9 @@ final class TouchBarRootView: NSView {
         transitionCoverView.autoresizingMask = [.width, .height]
         transitionCoverView.isHidden = true
         addSubview(transitionCoverView)
+        surfaceView.onGlassFrameDisplayed = { [weak self] in
+            self?.handleGlassFrameDisplayed()
+        }
     }
 
     @available(*, unavailable)
@@ -588,6 +622,12 @@ final class TouchBarRootView: NSView {
     }
 
     func setScene(_ scene: BarScene) {
+        if self.scene != scene {
+            showsFunctionKeyCapture = false
+            if scene == .workspace && desktopTheme == .glass && !showsWorkspaceFallback {
+                surfaceView.setRenderingEnabled(false)
+            }
+        }
         self.scene = scene
         updateContentVisibility()
         if scene == .mirror && desktopTheme == .glass && isWaitingForMirrorCapture {
@@ -598,16 +638,40 @@ final class TouchBarRootView: NSView {
     }
 
     func setWorkspaceFallbackVisible(_ visible: Bool) {
+        if showsWorkspaceFallback != visible { showsFunctionKeyCapture = false }
         showsWorkspaceFallback = visible
+        updateContentVisibility()
+    }
+
+    func setFunctionKeyPressed(_ pressed: Bool) {
+        guard isFunctionKeyPressed != pressed else { return }
+        isFunctionKeyPressed = pressed
+        showsFunctionKeyCapture = false
+        updateContentVisibility()
+    }
+
+    private func handleGlassFrameDisplayed() {
+        guard scene == .workspace, desktopTheme == .glass, !showsWorkspaceFallback,
+              isFunctionKeyPressed, !hasCaptureDiagnostic, !showsFunctionKeyCapture,
+              let original = surfaceView.latestOriginalFrame,
+              original === functionKeyOriginalFrame else { return }
+        showsFunctionKeyCapture = true
         updateContentVisibility()
     }
 
     private func updateContentVisibility() {
         let showFallback = scene == .workspace
-            && (showsWorkspaceFallback || (desktopTheme == .glass && !hasCaptureDiagnostic))
+            && (showsWorkspaceFallback
+                || (desktopTheme == .glass && !hasCaptureDiagnostic && !showsFunctionKeyCapture))
+        let preparesFunctionKeys = scene == .workspace && desktopTheme == .glass
+            && !showsWorkspaceFallback && isFunctionKeyPressed && !hasCaptureDiagnostic
+            && !showsFunctionKeyCapture
+        let hasRetainedFunctionKeys = surfaceView.latestOriginalFrame != nil
+            && surfaceView.latestOriginalFrame === functionKeyOriginalFrame
         workspaceView.setMirrorsPhysicalQuotaScroll(showFallback && !showsWorkspaceFallback)
         surfaceView.isHidden = showFallback
-        surfaceView.setRenderingEnabled(!showFallback)
+        surfaceView.setRenderingEnabled(!showFallback || preparesFunctionKeys,
+            reprocessRetainedFrame: !preparesFunctionKeys || hasRetainedFunctionKeys)
         workspaceView.isHidden = !showFallback
     }
 }

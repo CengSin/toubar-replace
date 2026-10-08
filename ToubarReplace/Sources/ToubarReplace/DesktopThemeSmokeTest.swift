@@ -60,6 +60,194 @@ enum DesktopThemeSmokeTest {
     }
 
     @MainActor
+    static func functionKeyFixture() -> CGImage? {
+        guard let context = CGContext(data: nil, width: 768, height: 30,
+            bitsPerComponent: 8, bytesPerRow: 768 * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: MirrorGlassFrameRenderer.bitmapInfo) else { return nil }
+        context.setFillColor(NSColor.black.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 768, height: 30))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        for index in 0..<12 {
+            let key = CGRect(x: CGFloat(index * 64 + 2), y: 3, width: 60, height: 24)
+            context.setFillColor(NSColor(white: 0.21, alpha: 1).cgColor)
+            context.addPath(CGPath(roundedRect: key, cornerWidth: 4, cornerHeight: 4, transform: nil))
+            context.fillPath()
+            let label = NSAttributedString(string: "F\(index + 1)", attributes: [
+                .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.white
+            ])
+            label.draw(at: NSPoint(x: key.midX - label.size().width / 2, y: 7))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return context.makeImage()
+    }
+
+    @MainActor
+    static func functionKeyFailures() async -> [String] {
+        var failures: [String] = []
+        func check(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        guard let functionKeys = functionKeyFixture(), let workspaceCapture = chromeFixture(),
+              let mirrorCapture = fixture(),
+              let composedKeys = MirrorGlassFrameRenderer().render(functionKeys) else {
+            return ["function key capture fixtures must render"]
+        }
+        let root = TouchBarRootView(frame: NSRect(x: 0, y: 0, width: 500, height: 35))
+        let expectedKeys = rgba(composedKeys)
+        func waitForComposedKeys() async {
+            for _ in 0..<100 {
+                if root.surfaceView.currentFrameContents.map(rgba) == expectedKeys { break }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        root.apply(theme: .glass)
+        root.setScene(.workspace)
+        root.displayCapture(image: workspaceCapture)
+        var flags: CGEventFlags = .maskShift
+        var changes: [Bool] = []
+        let monitor = TouchBarFunctionKeyMonitor(readFlags: { flags }) { pressed in
+            changes.append(pressed)
+            root.setFunctionKeyPressed(pressed)
+        }
+        monitor.start()
+        monitor.start()
+        check(monitor.isMonitoring && !monitor.isPressed && changes.isEmpty,
+              "non-Fn modifiers and repeated starts must preserve the native glass Workspace")
+        flags = [.maskSecondaryFn, .maskShift]
+        monitor.refresh()
+        monitor.refresh()
+        check(changes == [true] && !root.workspaceView.isHidden && root.surfaceView.isHidden
+              && root.scene == .workspace && !root.showsWorkspaceFallback,
+              "pressing Fn must keep native glass visible until a new function frame has been composed")
+        try? await Task.sleep(for: .milliseconds(25))
+        check(!root.workspaceView.isHidden && root.surfaceView.currentFrameContents == nil,
+              "Fn preparation must not reprocess or reveal the retained original Workspace frame")
+        if let delayedWorkspaceCapture = chromeFixture(horizontalOffset: 1) {
+            root.displayCapture(image: delayedWorkspaceCapture)
+            try? await Task.sleep(for: .milliseconds(25))
+            check(!root.workspaceView.isHidden && root.surfaceView.currentFrameContents == nil,
+                  "late Workspace captures must remain excluded while preparing the Fn row")
+        } else { check(false, "delayed Workspace fixture must render") }
+        root.displayCapture(image: functionKeys)
+        check(!root.workspaceView.isHidden && root.surfaceView.isHidden,
+              "the native glass Workspace must remain visible while function key composition is pending")
+        await waitForComposedKeys()
+        check(root.surfaceView.currentFrameContents.map(rgba) == expectedKeys
+              && root.surfaceView.latestOriginalFrame === functionKeys
+              && !root.surfaceView.isHidden && root.workspaceView.isHidden,
+              "glass Workspace must render the actual captured F1 through F12 row while Fn is held")
+        root.displayCapture(image: workspaceCapture)
+        try? await Task.sleep(for: .milliseconds(25))
+        check(root.surfaceView.currentFrameContents.map(rgba) == expectedKeys,
+              "a reordered old Workspace frame must never replace the visible function key row")
+        check(MirrorClickThroughPolicy.ignoresMouseEvents(usesSoftwareWorkspace: false,
+              scene: root.scene, showsWorkspaceFallback: root.showsWorkspaceFallback),
+              "holding Fn on hardware must retain desktop mouse click-through")
+        flags = .maskShift
+        monitor.refresh()
+        check(changes == [true, false] && !root.workspaceView.isHidden && root.surfaceView.isHidden
+              && root.surfaceView.currentFrameContents == nil,
+              "releasing Fn must immediately restore native glass Workspace without waiting for a capture")
+        root.displayCapture(image: functionKeys)
+        for _ in 0..<8 {
+            flags = .maskSecondaryFn
+            monitor.refresh()
+            root.displayCapture(image: functionKeys)
+            flags = []
+            monitor.refresh()
+        }
+        try? await Task.sleep(for: .milliseconds(25))
+        check(!root.workspaceView.isHidden && root.surfaceView.currentFrameContents == nil,
+              "late processed Fn frames must not overwrite Workspace after rapid press and release")
+        flags = .maskSecondaryFn
+        monitor.refresh()
+        root.apply(theme: .black)
+        check(root.surfaceView.currentFrameContents === functionKeys && root.workspaceView.isHidden,
+              "disabling glass while holding Fn must restore the captured raw function row")
+        root.apply(theme: .glass)
+        check(root.surfaceView.isHidden && !root.workspaceView.isHidden,
+              "reenabling glass must retain native Workspace until the retained function row is composed")
+        await waitForComposedKeys()
+        check(!root.surfaceView.isHidden && root.workspaceView.isHidden,
+              "reenabling glass while Fn is held must keep physical function keys visible")
+        root.setWorkspaceFallbackVisible(true)
+        check(root.surfaceView.isHidden && !root.workspaceView.isHidden,
+              "software Workspace must retain its clickable native controls while Fn is held")
+        root.setScene(.mirror)
+        check(!root.surfaceView.isHidden && root.workspaceView.isHidden,
+              "mirror mode must display physical capture regardless of Fn state")
+        root.setWorkspaceFallbackVisible(false)
+        root.setScene(.workspace)
+        monitor.stop()
+        monitor.refresh()
+        check(!monitor.isMonitoring && !monitor.isPressed && !root.isFunctionKeyPressed
+              && !root.workspaceView.isHidden,
+              "stopping Fn monitoring must clear held state and ignore subsequent refreshes")
+        monitor.start()
+        check(monitor.isPressed && !root.workspaceView.isHidden,
+              "starting monitoring with Fn held must prepare retained function capture behind native glass")
+        await waitForComposedKeys()
+        check(root.workspaceView.isHidden && !root.surfaceView.isHidden,
+              "starting monitoring with Fn held must expose the retained function row once composition completes")
+        root.displayCapture(error: .blackFrame)
+        root.displayCapture(image: workspaceCapture)
+        check(!root.hasCaptureDiagnostic && !root.showsFunctionKeyCapture
+              && !root.workspaceView.isHidden && root.surfaceView.isHidden,
+              "recovering through an old Workspace capture must restore native glass while waiting for Fn composition")
+        root.displayCapture(image: functionKeys)
+        check(!root.workspaceView.isHidden && root.surfaceView.isHidden,
+              "recovering the Fn row must keep native glass visible until composition finishes")
+        await waitForComposedKeys()
+        check(root.showsFunctionKeyCapture && root.workspaceView.isHidden,
+              "a composed function row must restore Fn display after a capture diagnostic")
+        root.displayCapture(error: .blackFrame)
+        flags = []
+        monitor.refresh()
+        check(root.hasCaptureDiagnostic && root.surfaceView.hasVisibleDiagnostic
+              && !root.surfaceView.isHidden && root.workspaceView.isHidden,
+              "Fn release must preserve visible capture diagnostics")
+        monitor.stop()
+
+        let blackWorkspace = TouchBarRootView(frame: root.frame)
+        blackWorkspace.setScene(.workspace)
+        blackWorkspace.displayCapture(image: workspaceCapture)
+        blackWorkspace.setFunctionKeyPressed(true)
+        blackWorkspace.displayCapture(image: functionKeys)
+        check(blackWorkspace.surfaceView.currentFrameContents === functionKeys,
+              "Fn tracking must preserve the existing raw capture behavior in black Workspace")
+        blackWorkspace.apply(theme: .glass)
+        check(!blackWorkspace.workspaceView.isHidden && blackWorkspace.surfaceView.isHidden,
+              "enabling glass while Fn is already held must prepare the known function capture behind native glass")
+        for _ in 0..<100 {
+            if blackWorkspace.showsFunctionKeyCapture { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        check(blackWorkspace.showsFunctionKeyCapture && blackWorkspace.workspaceView.isHidden
+              && blackWorkspace.surfaceView.currentFrameContents.map(rgba) == expectedKeys,
+              "enabling glass with Fn held must display the composed retained function row without another capture")
+
+        let returning = TouchBarRootView(frame: root.frame)
+        returning.apply(theme: .glass)
+        returning.displayCapture(image: mirrorCapture)
+        returning.beginSceneTransitionCover()
+        returning.setScene(.workspace)
+        returning.displayCapture(image: workspaceCapture)
+        returning.setFunctionKeyPressed(true)
+        returning.displayCapture(image: functionKeys)
+        returning.beginSceneTransitionCover()
+        returning.setScene(.mirror)
+        returning.setFunctionKeyPressed(false)
+        returning.scheduleSceneTransitionCoverFade(settle: .milliseconds(1), fadeDuration: 0)
+        try? await Task.sleep(for: .milliseconds(25))
+        returning.displayCapture(image: functionKeys)
+        check(!returning.isWaitingForMirrorCapture && returning.surfaceView.latestOriginalFrame === functionKeys,
+              "returning to mirror while Fn is held must accept function keys instead of rejecting them as stale Workspace")
+        return failures
+    }
+
+    @MainActor
     static func submitWhileDeliveryIsBlocked(_ pipeline: MirrorGlassFramePipeline, image: CGImage) {
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
@@ -436,6 +624,7 @@ enum DesktopThemeSmokeTest {
         check(!hoverController.hasActiveObservers,
               "glass theme must not install fading mouse observers or overlap timer")
         hoverController.stop()
+        failures.append(contentsOf: await functionKeyFailures())
         return failures
     }
 }

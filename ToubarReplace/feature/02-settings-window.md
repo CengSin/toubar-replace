@@ -15,6 +15,7 @@
   - 切换按钮模式下拉框：`switcherDisplayModePopup`（`NSPopUpButton`，选项：`物理 Touch Bar`、`独立浮窗`；无物理栏时强制`独立浮窗`）
   - 启动后进入下拉框：`startupScenePopup`（`NSPopUpButton`，选项：`Workspace`、`镜像`）
   - 窗口像素输入框：`widthField`、`heightField`（`NSTextField`，单位：`px`，默认 2300 × 70）
+  - 毛玻璃主题复选框：`glassThemeCheckbox`（标题：`启用毛玻璃效果`，Identifier / Accessibility Identifier：`ToubarReplace.Settings.GlassTheme`，偏好键：`ToubarReplace.glassThemeEnabled`）
   - 额度样式下拉框：`quotaDisplayStylePopup`（`NSPopUpButton`，选项：`柱状`、`数字`等）
   - 区域比例滑块：`quotaShareSlider`（`NSSlider`，范围 30~75，`accessibilityLabel: "额度区域占比"`，联动标签 `quotaShareLabel`: "额度 X% · App Y%"）
   - 用量订阅控制：
@@ -33,10 +34,12 @@
   - 切换按钮位置配置：在物理 Touch Bar 左侧网格与独立桌面悬浮窗二选一（无物理栏强制独立悬浮窗）
   - 启动默认场景切换：控制冷启动后进入 Workspace 工作区还是进入 Touch Bar 镜像
   - 像素与缩放调整：按真实像素调整镜像视口宽与高，自动换算 backing scale 比例
+  - 桌面外观切换：手动开启毛玻璃后，桌面 Workspace、独立切换按钮和真实 Touch Bar 桌面镜像立即更新；选择自动保存，首次默认关闭；关闭后恢复全黑背景及悬停/遮挡淡化
   - 额度板样式与比例调节：实时滑块调节额度区与应用区的占比（30%~75%），拖动立即生效并自动保存
   - 用量订阅多选管理：通过复选框显式勾选要上栏展示的订阅池，支持一键全部显示/隐藏
   - 常用 App 槽位管理：从 `/Applications` 中选择常用应用固定到 Touch Bar，支持替换已有槽位与移除已固定槽位（上限 5 个，满员禁止静默挤出）
 - 前置条件：状态栏菜单或 Workspace 界面点击触发；打开时应用临时变为 Frontmost/Regular 进程，关闭后回到后台 Accessory 模式
+  - 毛玻璃开关在 macOS 26 及以上可用；旧系统显示「需要 macOS 26 或更高版本」提示并保留保存的偏好
 - 常见故障现象：
   - 用量订阅为空：本地未运行 OpenUsage，或 `127.0.0.1:6736` 无法连接且未安装 CLI
   - 起始坐标不可输入：展示位置当前未选择「自定义坐标」模式，属于输入框保护状态

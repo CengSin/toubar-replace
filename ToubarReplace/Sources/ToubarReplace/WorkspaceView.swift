@@ -25,6 +25,11 @@ final class WorkspaceFloatingSwitcherView: NSView {
     var onMouseDown: (() -> Void)?
     var onToggleScene: (() -> Void)?
 
+    func apply(theme: DesktopTheme) {
+        layer?.backgroundColor = (theme == .glass ? NSColor.clear : WorkspaceTouchBarStyle.itemBackground).cgColor
+        imageView.contentTintColor = theme == .glass ? .labelColor : .white
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -145,12 +150,14 @@ final class WorkspaceSwitcherWindowController: NSWindowController {
     static let size = NSSize(width: 48, height: 36)
 
     let switcherView: WorkspaceFloatingSwitcherView
+    private let desktopHost: DesktopGlassHostView
     private(set) var hasRestoredFrame = false
 
     init() {
         switcherView = WorkspaceFloatingSwitcherView(
             frame: NSRect(origin: .zero, size: Self.size)
         )
+        desktopHost = DesktopGlassHostView(content: switcherView)
         let panel = NSPanel(
             contentRect: switcherView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -166,13 +173,19 @@ final class WorkspaceSwitcherWindowController: NSWindowController {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.animationBehavior = .none
-        panel.contentView = switcherView
+        panel.contentView = desktopHost
         panel.setFrameAutosaveName("ToubarReplaceWorkspaceSwitcherWindow")
         hasRestoredFrame = panel.setFrameUsingName(
             "ToubarReplaceWorkspaceSwitcherWindow"
         )
         panel.setContentSize(Self.size)
         super.init(window: panel)
+        apply(theme: DesktopThemePolicy.current)
+    }
+
+    func apply(theme: DesktopTheme) {
+        desktopHost.apply(theme: theme)
+        switcherView.apply(theme: theme)
     }
 
     @available(*, unavailable)
@@ -201,6 +214,27 @@ final class WorkspaceBarView: NSView {
     private let quotaPlate = QuotaPlateView()
     private let customAppsView = WorkspaceCustomAppsView()
     private let zoneDivider = NSView()
+    private(set) var desktopTheme: DesktopTheme = .black
+
+    private var physicalQuotaScrollState: QuotaScrollState?
+    private var mirrorsPhysicalQuotaScroll = false
+
+    func apply(theme: DesktopTheme) {
+        desktopTheme = theme
+        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
+        trayView.layer?.backgroundColor = (theme == .glass ? NSColor.clear : WorkspaceTouchBarStyle.trayBackground).cgColor
+        switcherButton.desktopTheme = theme
+        quotaPlate.setDesktopTheme(theme)
+        customAppsView.setDesktopTheme(theme)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            zoneDivider.layer?.backgroundColor = (theme == .glass ? NSColor.separatorColor : WorkspaceTouchBarStyle.dividerColor).cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance { apply(theme: desktopTheme) }
+    }
 
     var onToggleWorkspace: (() -> Void)?
     var onOpenSettings: (() -> Void)? {
@@ -263,12 +297,25 @@ final class WorkspaceBarView: NSView {
 
     func reloadCustomAppsFromPreferences() {
         customAppsView.display(apps: WorkspacePreferences.customApps)
+        customAppsView.setDesktopTheme(desktopTheme)
         needsLayout = true
     }
 
     func showQuota(_ state: QuotaBoardState) {
         quotaPlate.display(state)
+        quotaPlate.setDesktopTheme(desktopTheme)
         needsLayout = true
+    }
+
+    func mirrorQuotaScrollState(_ state: QuotaScrollState) {
+        physicalQuotaScrollState = state
+        if mirrorsPhysicalQuotaScroll { quotaPlate.mirrorScrollState(state) }
+    }
+
+    func setMirrorsPhysicalQuotaScroll(_ enabled: Bool) {
+        guard mirrorsPhysicalQuotaScroll != enabled else { return }
+        mirrorsPhysicalQuotaScroll = enabled
+        quotaPlate.mirrorScrollState(enabled ? physicalQuotaScrollState : nil)
     }
 
     override func layout() {
@@ -325,10 +372,91 @@ final class TouchBarRootView: NSView {
     let surfaceView: TouchBarSurfaceView
     let workspaceView: WorkspaceBarView
 
-    private let transitionCoverView = NSView(frame: .zero)
+    private let transitionCoverView = TouchBarSurfaceView(frame: .zero)
     private var transitionCoverTask: Task<Void, Never>?
+    private var transitionOriginalFrame: CGImage?
+    private var mirrorReturnTask: Task<Void, Never>?
+    private var retainedMirrorOriginal: CGImage?
+    private var retainedMirrorRendered: CGImage?
+    private var retainedMirrorAppearance: NSAppearance.Name?
+    private var retainedMirrorSignature: TouchBarFrameSignature?
+    private var workspaceCaptureSignature: TouchBarFrameSignature?
+    private var mirrorCaptureGuardUntil: ContinuousClock.Instant?
+    private var pendingMirrorCapture: CGImage?
+    private(set) var isWaitingForMirrorCapture = false
     private(set) var scene: BarScene = .mirror
     private(set) var showsWorkspaceFallback = false
+    private(set) var desktopTheme: DesktopTheme = .black
+    private(set) var hasCaptureDiagnostic = false
+
+    func displayCapture(image: CGImage) {
+        if desktopTheme == .glass {
+            if scene == .workspace {
+                if let signature = TouchBarFrameSignature(image: image),
+                   retainedMirrorSignature.map({ !signature.resembles($0) }) ?? true {
+                    workspaceCaptureSignature = signature
+                }
+            } else if isWaitingForMirrorCapture || workspaceCaptureSignature != nil {
+                if let deadline = mirrorCaptureGuardUntil, ContinuousClock.now >= deadline {
+                    workspaceCaptureSignature = nil
+                    mirrorCaptureGuardUntil = nil
+                }
+                if let signature = TouchBarFrameSignature(image: image),
+                   workspaceCaptureSignature.map({ signature.resembles($0) }) == true { return }
+                if isWaitingForMirrorCapture {
+                    pendingMirrorCapture = image
+                    return
+                }
+            }
+        }
+        hasCaptureDiagnostic = false
+        surfaceView.display(image: image)
+        updateContentVisibility()
+    }
+
+    func displayCapture(notice: TouchBarCaptureNotice) {
+        cancelMirrorReturn()
+        hasCaptureDiagnostic = true
+        updateContentVisibility()
+        surfaceView.display(notice: notice)
+    }
+
+    func displayCapture(error: TouchBarCaptureError) {
+        cancelMirrorReturn()
+        hasCaptureDiagnostic = true
+        updateContentVisibility()
+        surfaceView.display(error: error)
+    }
+
+    private func cancelMirrorReturn() {
+        mirrorReturnTask?.cancel()
+        mirrorReturnTask = nil
+        isWaitingForMirrorCapture = false
+        pendingMirrorCapture = nil
+    }
+
+    func apply(theme: DesktopTheme) {
+        let changed = desktopTheme != theme
+        desktopTheme = theme
+        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
+        surfaceView.apply(theme: theme)
+        workspaceView.apply(theme: theme)
+        transitionCoverView.apply(theme: theme)
+        if changed { retainedMirrorRendered = nil }
+        if theme == .glass {
+            clearSceneTransitionCover()
+        } else {
+            mirrorReturnTask?.cancel()
+            mirrorReturnTask = nil
+            isWaitingForMirrorCapture = false
+            workspaceCaptureSignature = nil
+            mirrorCaptureGuardUntil = nil
+            if let image = pendingMirrorCapture { surfaceView.display(image: image) }
+            pendingMirrorCapture = nil
+            if !transitionCoverView.isHidden { updateTransitionFrame() }
+        }
+        updateContentVisibility()
+    }
 
     override init(frame frameRect: NSRect) {
         surfaceView = TouchBarSurfaceView(frame: .zero)
@@ -371,46 +499,84 @@ final class TouchBarRootView: NSView {
 
 
     func beginSceneTransitionCover() {
+        mirrorReturnTask?.cancel()
+        mirrorReturnTask = nil
+        pendingMirrorCapture = nil
+        isWaitingForMirrorCapture = false
+        if desktopTheme == .glass {
+            clearSceneTransitionCover()
+            if scene == .mirror {
+                retainedMirrorOriginal = surfaceView.latestOriginalFrame
+                retainedMirrorRendered = surfaceView.currentFrameContents
+                retainedMirrorAppearance = surfaceView.effectiveAppearance.name
+                retainedMirrorSignature = retainedMirrorOriginal.flatMap(TouchBarFrameSignature.init(image:))
+                workspaceCaptureSignature = nil
+                mirrorCaptureGuardUntil = nil
+            } else {
+                isWaitingForMirrorCapture = !showsWorkspaceFallback && !hasCaptureDiagnostic
+                mirrorCaptureGuardUntil = ContinuousClock.now.advanced(by: .seconds(1))
+            }
+            return
+        }
         transitionCoverTask?.cancel()
         transitionCoverTask = nil
         transitionCoverView.layer?.removeAllAnimations()
-        if let contents = surfaceView.currentFrameContents {
-            transitionCoverView.layer?.contents = contents
-        } else {
-            transitionCoverView.layer?.contents = nil
-        }
+        transitionOriginalFrame = surfaceView.latestOriginalFrame
+        updateTransitionFrame()
         transitionCoverView.alphaValue = 1
         transitionCoverView.isHidden = false
-
         addSubview(transitionCoverView, positioned: .above, relativeTo: nil)
     }
 
+    private func updateTransitionFrame() {
+        if let image = transitionOriginalFrame { transitionCoverView.display(image: image) }
+        else { transitionCoverView.clearFrame() }
+    }
+
+    private func clearSceneTransitionCover() {
+        transitionCoverTask?.cancel()
+        transitionCoverTask = nil
+        transitionCoverView.layer?.removeAllAnimations()
+        transitionCoverView.isHidden = true
+        transitionCoverView.clearFrame()
+        transitionOriginalFrame = nil
+        transitionCoverView.alphaValue = 1
+    }
 
     func scheduleSceneTransitionCoverFade(
         settle: Duration = MirrorSceneTransition.settleDuration,
         fadeDuration: TimeInterval = MirrorSceneTransition.fadeDuration
     ) {
+        if desktopTheme == .glass {
+            guard isWaitingForMirrorCapture else { return }
+            mirrorReturnTask?.cancel()
+            mirrorReturnTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: settle)
+                guard !Task.isCancelled, let self,
+                      self.scene == .mirror, self.desktopTheme == .glass else { return }
+                self.isWaitingForMirrorCapture = false
+                self.mirrorReturnTask = nil
+                if let image = self.pendingMirrorCapture {
+                    self.pendingMirrorCapture = nil
+                    self.displayCapture(image: image)
+                }
+            }
+            return
+        }
         transitionCoverTask?.cancel()
         transitionCoverTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: settle)
             guard !Task.isCancelled, let self else { return }
             guard !self.transitionCoverView.isHidden else { return }
-
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 NSAnimationContext.runAnimationGroup({ context in
                     context.duration = fadeDuration
                     context.allowsImplicitAnimation = true
                     self.transitionCoverView.animator().alphaValue = 0
-                }, completionHandler: {
-                    continuation.resume()
-                })
+                }, completionHandler: { continuation.resume() })
             }
-
             guard !Task.isCancelled else { return }
-            self.transitionCoverView.isHidden = true
-            self.transitionCoverView.layer?.contents = nil
-            self.transitionCoverView.alphaValue = 1
-            self.transitionCoverTask = nil
+            self.clearSceneTransitionCover()
         }
     }
 
@@ -424,6 +590,11 @@ final class TouchBarRootView: NSView {
     func setScene(_ scene: BarScene) {
         self.scene = scene
         updateContentVisibility()
+        if scene == .mirror && desktopTheme == .glass && isWaitingForMirrorCapture {
+            let rendered = retainedMirrorAppearance == surfaceView.effectiveAppearance.name
+                ? retainedMirrorRendered : nil
+            surfaceView.restoreFrame(original: retainedMirrorOriginal, rendered: rendered)
+        }
     }
 
     func setWorkspaceFallbackVisible(_ visible: Bool) {
@@ -432,8 +603,11 @@ final class TouchBarRootView: NSView {
     }
 
     private func updateContentVisibility() {
-        let showFallback = scene == .workspace && showsWorkspaceFallback
+        let showFallback = scene == .workspace
+            && (showsWorkspaceFallback || (desktopTheme == .glass && !hasCaptureDiagnostic))
+        workspaceView.setMirrorsPhysicalQuotaScroll(showFallback && !showsWorkspaceFallback)
         surfaceView.isHidden = showFallback
+        surfaceView.setRenderingEnabled(!showFallback)
         workspaceView.isHidden = !showFallback
     }
 }

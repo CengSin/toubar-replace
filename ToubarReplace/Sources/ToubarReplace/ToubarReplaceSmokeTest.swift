@@ -15,6 +15,26 @@ enum ToubarReplaceSmokeTest {
         }
 
         var failures: [String] = []
+        failures.append(contentsOf: await DesktopThemeSmokeTest.failures())
+        let glassKey = TouchBarPreferences.glassThemeKey
+        let savedGlass = UserDefaults.standard.object(forKey: glassKey)
+        defer {
+            if let savedGlass { UserDefaults.standard.set(savedGlass, forKey: glassKey) }
+            else { UserDefaults.standard.removeObject(forKey: glassKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: glassKey)
+        expect(!TouchBarPreferences.glassThemeEnabled,
+               "missing glass preference must preserve black theme", failures: &failures)
+        for enabled in [true, false] {
+            TouchBarPreferences.glassThemeEnabled = enabled
+            expect(TouchBarPreferences.glassThemeEnabled == enabled,
+                   "manual glass preference must persist", failures: &failures)
+            for supported in [true, false] {
+                expect(DesktopThemePolicy.effectiveTheme(enabled: enabled, supportsGlass: supported)
+                       == (enabled && supported ? .glass : .black),
+                       "theme must depend only on manual choice and OS support", failures: &failures)
+            }
+        }
         let shareKey = "ToubarReplace.workspace.quotaShare"
         let savedShare = UserDefaults.standard.object(forKey: shareKey)
         defer {

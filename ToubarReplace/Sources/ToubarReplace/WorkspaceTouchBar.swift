@@ -377,7 +377,7 @@ enum WorkspaceTouchBarStyle {
 
 
     @MainActor
-    static func providerIcon(for id: QuotaProviderID) -> NSImage? {
+    static func providerIcon(for id: QuotaProviderID, foregroundColor: NSColor = primaryTextColor) -> NSImage? {
         if let resourceName = id.iconResourceName,
             let bundled = bundledIcon(named: resourceName)
         {
@@ -388,12 +388,16 @@ enum WorkspaceTouchBarStyle {
             accessibilityDescription: id.displayName
         )?.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-                .applying(.init(paletteColors: [primaryTextColor]))
+                .applying(.init(paletteColors: [foregroundColor]))
         )
     }
 
     @MainActor
+    private static var bundledIcons: [String: NSImage] = [:]
+
+    @MainActor
     static func bundledIcon(named resourceName: String) -> NSImage? {
+        if let cached = bundledIcons[resourceName] { return cached }
         var candidates: [URL?] = [
             Bundle.main.url(
                 forResource: resourceName,
@@ -425,6 +429,7 @@ enum WorkspaceTouchBarStyle {
                 let image = NSImage(contentsOf: url)
             else { continue }
             image.isTemplate = false
+            bundledIcons[resourceName] = image
             return image
         }
         return nil
@@ -493,6 +498,9 @@ enum WorkspaceTouchBarStyle {
 
 @MainActor
 final class WorkspaceChromeButton: NSButton {
+    var desktopTheme: DesktopTheme = .black {
+        didSet { refreshChrome() }
+    }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureDefaults()
@@ -557,11 +565,18 @@ final class WorkspaceChromeButton: NSButton {
     }
 
     func refreshChrome() {
-        WorkspaceTouchBarStyle.applyItemChrome(
-            to: layer,
-            highlighted: isHighlighted,
-            enabled: isEnabled
-        )
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            DesktopThemeChrome.apply(to: layer, theme: desktopTheme,
+                                    highlighted: isHighlighted, enabled: isEnabled)
+        }
+        if image?.isTemplate != false {
+            contentTintColor = desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshChrome()
     }
 
     func configureTitleChrome(title: String, toolTip: String) {
@@ -746,6 +761,12 @@ final class WorkspaceCustomAppsView: NSView {
     private var iconButtons: [WorkspaceChromeButton] = []
     private var apps: [CustomWorkspaceApp] = []
     private var slotViews: [NSView] = []
+    private var desktopTheme: DesktopTheme = .black
+
+    func setDesktopTheme(_ theme: DesktopTheme) {
+        desktopTheme = theme
+        ([emptyButton, settingsButton] + iconButtons).forEach { $0.desktopTheme = theme }
+    }
 
 
     var onOpenSettings: (() -> Void)?
@@ -814,6 +835,7 @@ final class WorkspaceCustomAppsView: NSView {
         }
         needsLayout = true
         superview?.needsLayout = true
+        setDesktopTheme(desktopTheme)
     }
 
     var slotFramesForValidation: [NSRect] { slotViews.map(\.frame) }
@@ -872,6 +894,7 @@ final class WorkspaceCustomAppsView: NSView {
 
 @MainActor
 final class QuotaVerticalBarView: NSView {
+    var desktopTheme: DesktopTheme = .black
     private let track = NSView()
     private let fill = NSView()
     private let valueLabel = NSTextField(labelWithString: "")
@@ -930,13 +953,16 @@ final class QuotaVerticalBarView: NSView {
         self.fillColor = fillColor
         self.style = style
         caption.stringValue = metric.caption
+        track.layer?.backgroundColor = (desktopTheme == .glass ? NSColor.labelColor : .white)
+            .withAlphaComponent(0.14).cgColor
         caption.textColor = metric.isHighlighted
             ? WorkspaceTouchBarStyle.amberAccent
-            : WorkspaceTouchBarStyle.secondaryTextColor
+            : (desktopTheme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor)
         valueLabel.stringValue = metric.valueText
         valueLabel.textColor = metric.isHighlighted
             ? WorkspaceTouchBarStyle.amberAccent
-            : (metric.valueText != "—" ? (textColor ?? fillColor) : WorkspaceTouchBarStyle.secondaryTextColor)
+            : (metric.valueText != "—" ? (textColor ?? fillColor)
+               : (desktopTheme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor))
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let text = NSMutableAttributedString(string: metric.valueText, attributes: [
@@ -1016,6 +1042,26 @@ final class QuotaVerticalBarView: NSView {
 
 @MainActor
 final class QuotaProviderGroupView: NSView {
+    var desktopTheme: DesktopTheme = .black {
+        didSet {
+            guard oldValue != desktopTheme else { return }
+            fiveHourBar.desktopTheme = desktopTheme
+            weeklyBar.desktopTheme = desktopTheme
+            resetBar.desktopTheme = desktopTheme
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                if let state { display(state) }
+                else { refreshChrome() }
+            }
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if let state { display(state) }
+            else { refreshChrome() }
+        }
+    }
     private let iconView = NSImageView()
     private let fiveHourBar = QuotaVerticalBarView()
     private let weeklyBar = QuotaVerticalBarView()
@@ -1048,7 +1094,11 @@ final class QuotaProviderGroupView: NSView {
 
     func display(_ state: QuotaProviderGroupState) {
         self.state = state
-        iconView.image = WorkspaceTouchBarStyle.providerIcon(for: state.provider)
+        iconView.image = WorkspaceTouchBarStyle.providerIcon(
+            for: state.provider,
+            foregroundColor: desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        )
+        iconView.contentTintColor = desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
         let style = WorkspacePreferences.quotaMetricDisplayStyle
         weeklyBar.isHidden = false
         resetBar.isHidden = state.balance != nil
@@ -1070,7 +1120,7 @@ final class QuotaProviderGroupView: NSView {
                 state.fiveHour,
                 fillColor: state.fiveHour.isHighlighted
                     ? WorkspaceTouchBarStyle.amberAccent
-                    : .white,
+                    : (desktopTheme == .glass ? .labelColor : .white),
                 style: style
             )
         }
@@ -1078,14 +1128,14 @@ final class QuotaProviderGroupView: NSView {
             state.weekly,
             fillColor: state.weekly.isHighlighted
                 ? WorkspaceTouchBarStyle.amberAccent
-                : .white,
+                : (desktopTheme == .glass ? .labelColor : .white),
             style: style
         )
         resetBar.display(
             state.reset,
             fillColor: WorkspaceTouchBarStyle.resetBarColor,
             style: style,
-            textColor: WorkspaceTouchBarStyle.primaryTextColor
+            textColor: desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
         )
         toolTip = state.tooltip
         setAccessibilityLabel("\(state.title) 额度")
@@ -1159,11 +1209,9 @@ final class QuotaProviderGroupView: NSView {
     }
 
     private func refreshChrome() {
-        WorkspaceTouchBarStyle.applyItemChrome(
-            to: layer,
-            highlighted: false,
-            enabled: true
-        )
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            DesktopThemeChrome.apply(to: layer, theme: desktopTheme)
+        }
         if state?.isRecommended == true {
             layer?.borderWidth = 1
             layer?.borderColor = WorkspaceTouchBarStyle.amberAccent
@@ -1172,17 +1220,78 @@ final class QuotaProviderGroupView: NSView {
     }
 }
 
+struct QuotaScrollState: Equatable {
+    let viewportWidth: CGFloat
+    let contentWidth: CGFloat
+    let offset: CGFloat
+}
+
 @MainActor
 final class QuotaPlateView: NSView {
+    private var desktopTheme: DesktopTheme = .black
+
+    func setDesktopTheme(_ theme: DesktopTheme) {
+        guard desktopTheme != theme else { return }
+        desktopTheme = theme
+        emptyLabel.textColor = theme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor
+        groupViews.forEach { $0.desktopTheme = theme }
+    }
     private let emptyLabel = NSTextField(labelWithString: "暂无额度")
     private let scrollView = NSScrollView()
     private let documentView = NSView()
     private(set) var groupViews: [QuotaProviderGroupView] = []
     private var state = QuotaBoardState.empty
+    private var displayedStyle: QuotaMetricDisplayStyle?
     private var leadingProvider: QuotaProviderID?
     private var pendingScrollReset = false
     private(set) var contentWidth: CGFloat = 0
     private(set) var needsHorizontalScroll = false
+    private var mirroredScrollState: QuotaScrollState?
+    private var lastPublishedScrollState: QuotaScrollState?
+    private var isLayingOut = false
+    var onScrollStateChanged: ((QuotaScrollState) -> Void)? {
+        didSet {
+            lastPublishedScrollState = nil
+            publishScrollState()
+        }
+    }
+
+    func mirrorScrollState(_ state: QuotaScrollState?) {
+        if let state, state.viewportWidth <= 1 { return }
+        guard mirroredScrollState != state else { return }
+        let geometryChanged = mirroredScrollState?.viewportWidth != state?.viewportWidth
+            || mirroredScrollState?.contentWidth != state?.contentWidth
+        mirroredScrollState = state
+        if geometryChanged {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        } else {
+            applyMirroredScrollPosition()
+        }
+    }
+
+    private func applyMirroredScrollPosition() {
+        guard let state = mirroredScrollState, bounds.width > 1 else { return }
+        let scale = bounds.width / state.viewportWidth
+        let offset = min(max(state.offset * scale, 0), max(contentWidth - bounds.width, 0))
+        scrollView.contentView.scroll(to: NSPoint(x: offset, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func publishScrollState() {
+        guard !isLayingOut, scrollView.contentView.bounds.width > 1,
+              let onScrollStateChanged else { return }
+        let viewportWidth = scrollView.contentView.bounds.width
+        let state = QuotaScrollState(viewportWidth: viewportWidth, contentWidth: contentWidth,
+            offset: min(max(scrollView.contentView.bounds.minX, 0), max(contentWidth - viewportWidth, 0)))
+        guard state != lastPublishedScrollState else { return }
+        lastPublishedScrollState = state
+        onScrollStateChanged(state)
+    }
+
+    @objc private func scrollBoundsChanged(_ notification: Notification) {
+        publishScrollState()
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1213,6 +1322,9 @@ final class QuotaPlateView: NSView {
         scrollView.allowedTouchTypes = [.direct, .indirect]
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.backgroundColor = .clear
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         documentView.wantsLayer = true
         scrollView.documentView = documentView
         addSubview(scrollView)
@@ -1231,30 +1343,43 @@ final class QuotaPlateView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func display(_ state: QuotaBoardState) {
+        let style = WorkspacePreferences.quotaMetricDisplayStyle
+        guard self.state != state || displayedStyle != style else { return }
+        let styleChanged = displayedStyle != style
+        displayedStyle = style
         self.state = state
         let newLeading = state.groups.first?.provider
         if newLeading != leadingProvider {
             pendingScrollReset = true
             leadingProvider = newLeading
         }
-        groupViews.forEach { $0.removeFromSuperview() }
-        groupViews.removeAll()
+        var retainedViews = Dictionary(uniqueKeysWithValues: groupViews.compactMap { view in
+            view.state.map { ($0.provider, view) }
+        })
+        groupViews.removeAll(keepingCapacity: true)
         emptyLabel.isHidden = !state.isEmpty
         emptyLabel.stringValue = "暂无额度"
         scrollView.isHidden = state.isEmpty
         toolTip = state.isEmpty ? "暂无订阅额度数据" : nil
         for group in state.groups {
-            let view = QuotaProviderGroupView()
-            view.display(group)
-            documentView.addSubview(view)
+            let view = retainedViews.removeValue(forKey: group.provider) ?? QuotaProviderGroupView()
+            view.desktopTheme = desktopTheme
+            if view.state != group || styleChanged { view.display(group) }
+            if view.superview == nil { documentView.addSubview(view) }
             groupViews.append(view)
         }
+        retainedViews.values.forEach { $0.removeFromSuperview() }
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
         guard bounds.width > 1, bounds.height > 1 else { return }
+        isLayingOut = true
+        defer {
+            isLayingOut = false
+            publishScrollState()
+        }
         emptyLabel.frame = bounds
         scrollView.frame = bounds
         guard !groupViews.isEmpty else {
@@ -1276,10 +1401,11 @@ final class QuotaPlateView: NSView {
             $0.state?.fiveHour.isAvailable != false
         }
         let arrangement = WorkspaceTouchBarLayout.quotaScrollArrangement(
-            plateWidth: bounds.width,
+            plateWidth: mirroredScrollState?.viewportWidth ?? bounds.width,
             showsFiveHourPerGroup: showsFiveHour
         )
-        contentWidth = arrangement.contentWidth
+        let scale = mirroredScrollState.map { bounds.width / $0.viewportWidth } ?? 1
+        contentWidth = arrangement.contentWidth * scale
         needsHorizontalScroll = arrangement.needsScroll
         scrollView.horizontalScrollElasticity = arrangement.needsScroll
             ? .allowed
@@ -1287,11 +1413,11 @@ final class QuotaPlateView: NSView {
         documentView.frame = NSRect(
             x: 0,
             y: 0,
-            width: arrangement.contentWidth,
+            width: contentWidth,
             height: bounds.height
         )
         var x: CGFloat = 0
-        let spacing = WorkspaceTouchBarLayout.quotaGroupSpacing
+        let spacing = WorkspaceTouchBarLayout.quotaGroupSpacing * scale
         for (index, view) in groupViews.enumerated() {
             let groupWidth = index < arrangement.groupWidths.count
                 ? arrangement.groupWidths[index]
@@ -1299,18 +1425,19 @@ final class QuotaPlateView: NSView {
             view.frame = NSRect(
                 x: x,
                 y: 0,
-                width: groupWidth,
+                width: groupWidth * scale,
                 height: bounds.height
             )
-            x += groupWidth + spacing
+            x += groupWidth * scale + spacing
         }
-        let maxOffset = max(arrangement.contentWidth - bounds.width, 0)
+        let maxOffset = max(contentWidth - bounds.width, 0)
         scrollView.contentView.scroll(
             to: NSPoint(
                 x: min(max(previousOffset, 0), maxOffset),
                 y: 0
             )
         )
+        applyMirroredScrollPosition()
     }
 }
 
@@ -1399,6 +1526,10 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
     var onPresentationInterrupted: (() -> Void)?
     var onToggleWorkspace: (() -> Void)?
+
+    var onQuotaScrollStateChanged: ((QuotaScrollState) -> Void)? {
+        didSet { quotaPlate.onScrollStateChanged = onQuotaScrollStateChanged }
+    }
 
     override init() {
         super.init()

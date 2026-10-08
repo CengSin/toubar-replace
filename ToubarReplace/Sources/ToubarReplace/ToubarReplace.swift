@@ -181,6 +181,9 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             onWindowClosed: { [weak self] in
                 NSApp.setActivationPolicy(.accessory)
                 self?.windowController?.ensurePhysicalSwitcherPresented()
+            },
+            onDesktopThemeChanged: { [weak self] in
+                self?.windowController?.reloadDesktopTheme()
             }
         )
     }

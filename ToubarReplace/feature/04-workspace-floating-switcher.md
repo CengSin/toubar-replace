@@ -9,6 +9,7 @@
   - 窗口类型：`NSPanel`（`styleMask: [.borderless, .nonactivatingPanel]`, `level: .floating`）
   - 窗口 Frame Autosave：`ToubarReplaceWorkspaceSwitcherWindow`
   - 浮窗视图：`WorkspaceFloatingSwitcherView`（固定尺寸: `48 × 36` pt）
+  - 材质承载：`DesktopGlassHostView`（毛玻璃时使用原生 `NSGlassEffectView`）
   - 无障碍角色：`setAccessibilityRole(.button)`
   - 镜像模式下控件：
     - 图标：`square.grid.2x2`
@@ -19,6 +20,7 @@
     - 无障碍标签：`accessibilityLabel: "返回 Touch Bar 镜像"`
     - Tooltip：`"点击返回 Touch Bar 镜像；长按拖动可调整位置"`
 - 子功能：
+  - 桌面外观联动：随设置中的毛玻璃开关即时切换圆角玻璃和既有深色底板，图标前景适配明暗外观；按钮尺寸保持 48 × 36pt
   - 短按快速切换场景：按压时长 < 350ms 且鼠标位移 < 4pt 时触发切换，快速在 Touch Bar 镜像与 Workspace 触控台间转换
   - 长按与拖动调整位置：按压时长 ≥ 350ms 或位移 ≥ 4pt 时判定为拖动，用户可自由将浮窗拖到屏幕任意位置，释放后自动保存窗口坐标
   - 自动贴边初始化：首次打开且无保存坐标时，默认贴靠在桌面镜像窗口左侧（若屏幕空间不足则排在右侧）

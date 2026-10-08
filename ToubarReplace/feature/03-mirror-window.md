@@ -9,19 +9,28 @@
   - 窗口类型：`NSPanel`（`styleMask: [.borderless, .resizable, .nonactivatingPanel]`, `level: .floating`）
   - 窗口 Frame Autosave：`ToubarReplaceMirrorWindow`
   - 画面承载视图：`TouchBarSurfaceView`（`imageView.layer?.contentsGravity = .resizeAspect`）
-  - 状态提示文本：`statusLabel`（`NSTextField`，居中显示白字）
+  - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `NSGlassEffectView` 的 `contentView` 承载 `TouchBarRootView`）
+  - 镜像背景处理：`MirrorGlassFrameRenderer`、`MirrorGlassFramePipeline`（保留 `latestOriginalFrame`，普通镜像处理近黑空白及系统灰色底块，使用 `MirrorGlassAppearance` 适配单色符号）
+  - 物理用量横滑同步：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`（同步物理用量区视口、内容宽度与横滑位置）
+  - 状态提示文本：`statusLabel`（`NSTextField`，全黑主题白字，毛玻璃主题使用自适应前景）
     - 初始状态："正在读取 Touch Bar…"
     - 无硬件状态："当前 Mac 无物理 Touch Bar\n点击切换按钮打开 Workspace，查看额度并启动应用"
     - 错误状态："\(error.localizedDescription)\n\n恢复命令（终端）：\n\(ToubarReplaceAppInfo.recoveryCommands)"
-  - 切换过渡遮罩：`MirrorSceneTransition`（`settleDuration: 221ms`, `fadeDuration: 0.12s`）
-  - 鼠标悬停透明度控制器：`TouchBarHoverOpacityController`（正常状态 `alpha = 1.0`，鼠标悬停或覆盖其他 App 窗口时 `alpha = 0.3`）
+  - 切换过渡遮罩：`MirrorSceneTransition`（全黑转场 `settleDuration: 221ms`、`fadeDuration: 0.12s`；玻璃切换直接更新场景）
+  - 鼠标悬停透明度控制器：`TouchBarHoverOpacityController`（全黑主题下正常 `alpha = 1.0`，鼠标悬停或覆盖其他 App 窗口时 `alpha = 0.3`；毛玻璃主题保持 `1.0`）
 - 子功能：
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
   - 鼠标穿透点击：在镜像场景下 `ignoresMouseEvents = true`，鼠标点击穿透至桌面底层应用程序，窗口不可随意拖拽
-  - 鼠标悬停半透明：全局鼠标监视检测，进入窗口区域立即淡化至 0.3 不透明度；每 0.5 秒检测主条与下方其他 App 可见普通窗口的重叠，重叠时保持 0.3（包括全屏窗口），鼠标离开且无重叠后恢复 1.0，避免遮挡屏幕内容
-  - 平滑无感场景切换：物理/软件模式切换时冻结最后一帧（cover），等待 221ms 系统 Function Row 重排稳定后执行 0.12s 渐隐淡出，遮盖系统重排脏帧
-  - 故障提示与重置引导：画面出现黑屏或系统 Control Strip 异常时，自动展示终端恢复命令
+  - 全黑主题悬停半透明：全局鼠标监视检测，进入窗口区域立即淡化至 0.3 不透明度；每 0.5 秒检测主条与下方其他 App 可见普通窗口的重叠，重叠时保持 0.3（包括全屏窗口），鼠标离开且无重叠后恢复 1.0
+  - Dock 风格桌面玻璃：设置开启后使用原生圆角玻璃底板，去除镜像近黑空白及可识别的系统灰色底块；单色符号保持形状和抗锯齿并适配明暗外观，彩色图标及内部深色细节保留；关闭时立即恢复最近的原始帧
+  - 原生毛玻璃工作台：`WorkspaceBarView` 沿用原生玻璃上的文字、卡片与 App 控件。有物理栏时，手指操作由物理控件处理，桌面保持鼠标穿透；用量区通过 `NSView.boundsDidChangeNotification` 同步物理横滑位置，原生滚动容器即时移动已有卡片。软件回退工作台接收桌面操作
+  - 物理视口联动：玻璃用量区按物理视口决定卡片是否溢出，并按桌面显示宽度映射横滑位置；物理栏尺寸变化、推荐排序与额度刷新同步更新。隐藏的硬件镜像保留最近原始帧，关闭毛玻璃时恢复捕获画面
+  - 主题联动淡化生命周期：玻璃生效时窗口保持 1.0，并停止淡化用鼠标监视和遮挡计时器；恢复全黑时立即重新检测当前鼠标与遮挡状态
+  - 平滑场景切换：玻璃 Workspace 立即显示原生工作台，返回时立即恢复最近镜像前景；真实捕获重排等待 221ms 后接入新镜像帧，并在返回后的 1 秒内按 `TouchBarFrameSignature` 排除旧 Workspace 帧；快速反向切换取消旧等待任务。全黑主题保留原始帧覆盖与 0.12s 淡出
+  - 玻璃切换调度：进入时更新场景，延后一帧执行物理呈现；快速返回或停止时通过 Workspace 会话代次取消尚未执行的呈现任务
+  - 故障提示与重置引导：画面出现黑屏或系统 Control Strip 异常时，自动展示终端恢复命令；硬件玻璃 Workspace 同样展示捕获诊断，主题重切时保留提示，收到健康原始帧后恢复原生工作台
 - 前置条件：
+  - 毛玻璃主题：macOS 26 及以上，在设置手动开启
   - 有物理 Touch Bar 机器：私有 DFR 显示流可用
   - 无物理 Touch Bar 机器：进入软件空闲说明态，引导用户打开 Workspace
 - 常见故障现象：

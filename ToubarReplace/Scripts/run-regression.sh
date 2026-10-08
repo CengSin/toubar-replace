@@ -18,10 +18,11 @@ mkdir -p "$cache_root/swiftpm-module-cache"
 export CLANG_MODULE_CACHE_PATH="$cache_root/clang-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$cache_root/swiftpm-module-cache"
 
-legacy_sdk=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk
-if [[ -z "${SDKROOT:-}" && -d "$legacy_sdk" ]]; then
-    export SDKROOT="$legacy_sdk"
+export SDKROOT="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
+sdk_version=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$SDKROOT/SDKSettings.plist")
+if (( ${sdk_version%%.*} < 26 )); then
+    echo "error: ToubarReplace 毛玻璃主题需要 macOS 26 或更高版本 SDK（当前 $sdk_version）；最低运行版本仍为 macOS 14。" >&2
+    exit 1
 fi
 
 exec swift run --disable-sandbox ToubarReplace --smoke-test
-

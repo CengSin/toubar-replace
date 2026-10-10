@@ -9,7 +9,7 @@
   - 窗口类型：`NSPanel`（`styleMask: [.borderless, .resizable, .nonactivatingPanel]`, `level: .floating`）
   - 窗口 Frame Autosave：`ToubarReplaceMirrorWindow`
   - 画面承载视图：`TouchBarSurfaceView`（`imageView.layer?.contentsGravity = .resizeAspect`）
-  - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `NSGlassEffectView` 的 `contentView` 承载 `TouchBarRootView`）
+  - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `.clear` 样式的 `NSGlassEffectView`，通过 `contentView` 承载 `TouchBarRootView`）
   - 镜像背景处理：`MirrorGlassFrameRenderer`、`MirrorGlassFramePipeline`（保留 `latestOriginalFrame`，普通镜像处理近黑空白及系统灰色底块，使用 `MirrorGlassAppearance` 适配单色符号）
   - 物理用量横滑同步：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`（同步物理用量区视口、内容宽度与横滑位置）
   - Fn 显示同步：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarSurfaceView.onGlassFrameDisplayed`（读取当前 Fn 状态，等待新捕获完成玻璃合成后显示系统临时画面）

@@ -9,7 +9,7 @@
   - 窗口类型：`NSPanel`（`styleMask: [.borderless, .nonactivatingPanel]`, `level: .floating`）
   - 窗口 Frame Autosave：`ToubarReplaceWorkspaceSwitcherWindow`
   - 浮窗视图：`WorkspaceFloatingSwitcherView`（固定尺寸: `48 × 36` pt）
-  - 材质承载：`DesktopGlassHostView`（毛玻璃时使用原生 `NSGlassEffectView`）
+  - 材质承载：`DesktopGlassHostView`（毛玻璃时使用 `.clear` 样式的原生 `NSGlassEffectView`）
   - 无障碍角色：`setAccessibilityRole(.button)`
   - 镜像模式下控件：
     - 图标：`square.grid.2x2`

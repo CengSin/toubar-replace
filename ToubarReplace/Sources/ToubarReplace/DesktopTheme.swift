@@ -63,7 +63,7 @@ final class DesktopGlassHostView: NSView {
         if theme == .glass, #available(macOS 26, *) {
             if glassView == nil {
                 let glass = NSGlassEffectView(frame: bounds)
-                glass.style = .regular
+                glass.style = .clear
                 glass.autoresizingMask = [.width, .height]
                 hostedContent.removeFromSuperview()
                 glass.contentView = hostedContent

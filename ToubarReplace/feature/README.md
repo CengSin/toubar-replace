@@ -10,9 +10,9 @@
 | :--- | :--- | :--- | :--- |
 | 01 | [`01-status-bar-menu.md`](01-status-bar-menu.md) | 状态栏菜单 (Status Bar Menu) | 状态栏图标、显隐控制、设置与退出入口 |
 | 02 | [`02-settings-window.md`](02-settings-window.md) | 设置面板 (Settings Window) | 展示位置、自定义坐标、像素分辨率、毛玻璃开关、比例滑块、订阅勾选、App 管理 |
-| 03 | [`03-mirror-window.md`](03-mirror-window.md) | 桌面镜像浮窗 (Touch Bar Mirror Window) | 流式镜像、圆角玻璃背景、鼠标穿透、全黑主题悬停 0.3 透明度、主题转场盖板 |
-| 04 | [`04-workspace-floating-switcher.md`](04-workspace-floating-switcher.md) | 独立切换浮窗 (Workspace Floating Switcher) | 48×36 桌面小方块、短按切场景、长按自由拖拽移动 |
-| 05 | [`05-physical-touchbar-switcher.md`](05-physical-touchbar-switcher.md) | 物理 Touch Bar 切换键 (Physical Switcher Item) | 物理栏 Placement 0 网格按钮、保留 Control Strip、关闭盒抑制 |
+| 03 | [`03-mirror-window.md`](03-mirror-window.md) | 桌面镜像浮窗 (Touch Bar Mirror Window) | 流式镜像、胶囊玻璃背景、主题转场盖板、手动显隐 |
+| 04 | [`04-workspace-floating-switcher.md`](04-workspace-floating-switcher.md) | 桌面展示与 Touch Bar 唤醒 (Desktop Presentation) | 启动展示、手动显隐、整条触控唤醒、固定位置 spring 展开、配置宽高、内容淡入 |
+| 05 | [`05-physical-touchbar-switcher.md`](05-physical-touchbar-switcher.md) | 物理 Touch Bar 切换键 (Physical Switcher Item) | 物理栏 Placement 0 网格与隐藏按钮、保留 Control Strip、关闭盒抑制 |
 | 06 | [`06-workspace-touchbar.md`](06-workspace-touchbar.md) | Workspace 触控工作台 (Workspace Touch Bar) | 全宽 Placement 1 托盘、Escape 槽独立返回、桌面软工作台模式 |
 | 07 | [`07-quota-plate.md`](07-quota-plate.md) | 额度用量展示看板 (Quota Plate View) | 5h/周/重置三竖柱、按量付费卡片、智能浪费压力推荐、无条横滑 |
 | 08 | [`08-custom-apps.md`](08-custom-apps.md) | 自定义应用启动区 (Custom Apps Zone) | 常用应用 5 槽位自适应排布、空态引导、齿轮设置入口、一键拉起 |
@@ -39,6 +39,6 @@
 ## 维护规范
 
 1. **控件标识真实性**：选择器字段必须与 AppKit / SwiftUI 源代码中的 identifier、autosave name、accessibilityLabel 等完全一致，不得臆造。
-2. **变更同步**：当 UI 布局、快捷键、交互层级或数据映射逻辑发生变更时，修改代码的同时必须同步更新对应的 feature 文档。
+2. **变更同步**：当 UI 布局、入口、交互层级或数据映射逻辑发生变更时，修改代码的同时必须同步更新对应的 feature 文档。
 3. **冒烟测试覆盖**：新增或修改功能文档后，运行 `Scripts/run-regression.sh` 确保系统回归与断言完全一致。
 4. **仅描述已有能力**：文档仅记录当前已实现且生效的功能与行为，严禁编写否定性免责声明（无需写“不可做某某”、“不支持某某”、“由其他区域负责”等冗余内容）。

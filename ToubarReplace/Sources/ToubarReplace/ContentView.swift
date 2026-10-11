@@ -38,38 +38,6 @@ struct TouchBarWindowMetrics {
 }
 
 
-enum TouchBarHoverOpacity {
-    static let normal: CGFloat = 1
-    static let hovered: CGFloat = 0.3
-
-    static func targetAlpha(isMouseInside: Bool, overlapsOtherApp: Bool = false) -> CGFloat {
-        isMouseInside || overlapsOtherApp ? hovered : normal
-    }
-
-    static func screenBounds(windowFrame: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
-        CGRect(
-            x: windowFrame.minX,
-            y: primaryScreenHeight - windowFrame.maxY,
-            width: windowFrame.width,
-            height: windowFrame.height
-        )
-    }
-
-    static func overlaps(windowBounds: CGRect, otherBounds: CGRect) -> Bool {
-        let intersection = windowBounds.intersection(otherBounds)
-        return !intersection.isNull && intersection.width > 0 && intersection.height > 0
-    }
-
-    static func isMouseInside(
-        windowFrame: CGRect,
-        mouseLocation: CGPoint
-    ) -> Bool {
-        windowFrame.contains(mouseLocation)
-    }
-}
-
-
-
 enum MirrorSceneTransition {
 
     static let settleDuration: Duration = .milliseconds(221)
@@ -86,154 +54,6 @@ enum WorkspaceAsyncSessionPolicy {
         capturedGeneration == currentGeneration && scene == .workspace
     }
 }
-
-@MainActor
-final class TouchBarHoverOpacityController {
-    private static let mouseEventMask: NSEvent.EventTypeMask = [
-        .mouseMoved,
-        .leftMouseDragged,
-        .rightMouseDragged,
-        .otherMouseDragged,
-        .leftMouseDown,
-        .leftMouseUp,
-    ]
-
-    private weak var window: NSWindow?
-    private var localMonitor: Any?
-    private var globalMonitor: Any?
-    private var overlapTimer: Timer?
-    private var overlapsOtherApp = false
-    private(set) var theme: DesktopTheme = .black
-    private var isRunning = false
-
-    var hasActiveObservers: Bool {
-        localMonitor != nil || globalMonitor != nil || overlapTimer != nil
-    }
-
-    func setTheme(_ theme: DesktopTheme) {
-        self.theme = theme
-        removeMonitors()
-        overlapTimer?.invalidate()
-        overlapTimer = nil
-        overlapsOtherApp = false
-        if isRunning { start() }
-        else { apply(TouchBarHoverOpacity.normal) }
-    }
-
-    init(window: NSWindow?) {
-        self.window = window
-    }
-
-    func start() {
-        isRunning = true
-        guard theme == .black else {
-            apply(TouchBarHoverOpacity.normal)
-            return
-        }
-        installMonitorsIfNeeded()
-        updateOverlap()
-        if overlapTimer == nil {
-            let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.updateOverlap()
-                    self?.refresh()
-                }
-            }
-            timer.tolerance = 0.1
-            RunLoop.main.add(timer, forMode: .common)
-            overlapTimer = timer
-        }
-        refresh()
-    }
-
-    func stop() {
-        isRunning = false
-        removeMonitors()
-        overlapTimer?.invalidate()
-        overlapTimer = nil
-        overlapsOtherApp = false
-        apply(TouchBarHoverOpacity.normal)
-    }
-
-    func refresh() {
-        guard theme == .black else {
-            apply(TouchBarHoverOpacity.normal)
-            return
-        }
-        guard let window, window.isVisible else {
-            apply(TouchBarHoverOpacity.normal)
-            return
-        }
-        let inside = TouchBarHoverOpacity.isMouseInside(
-            windowFrame: window.frame,
-            mouseLocation: NSEvent.mouseLocation
-        )
-        apply(DesktopThemePolicy.targetAlpha(
-            theme: theme, isMouseInside: inside, overlapsOtherApp: overlapsOtherApp
-        ))
-    }
-
-    private func updateOverlap() {
-        guard let window, window.isVisible,
-            let primaryScreenHeight = NSScreen.screens.first?.frame.height,
-            let windows = CGWindowListCopyWindowInfo(
-                [.optionOnScreenBelowWindow, .excludeDesktopElements],
-                CGWindowID(window.windowNumber)
-            ) as? [[String: Any]]
-        else {
-            overlapsOtherApp = false
-            return
-        }
-        let bounds = TouchBarHoverOpacity.screenBounds(
-            windowFrame: window.frame, primaryScreenHeight: primaryScreenHeight
-        )
-        overlapsOtherApp = windows.contains { info in
-            guard let pid = info[kCGWindowOwnerPID as String] as? Int32,
-                pid != ProcessInfo.processInfo.processIdentifier,
-                let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-                let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0,
-                let rawBounds = info[kCGWindowBounds as String] as? [String: Any],
-                let otherBounds = CGRect(dictionaryRepresentation: rawBounds as CFDictionary)
-            else { return false }
-            return TouchBarHoverOpacity.overlaps(windowBounds: bounds, otherBounds: otherBounds)
-        }
-    }
-
-    private func installMonitorsIfNeeded() {
-        guard localMonitor == nil, globalMonitor == nil else { return }
-        localMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: Self.mouseEventMask
-        ) { [weak self] event in
-            self?.refresh()
-            return event
-        }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: Self.mouseEventMask
-        ) { [weak self] _ in
-            self?.refresh()
-        }
-    }
-
-    private func removeMonitors() {
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-            self.localMonitor = nil
-        }
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
-            self.globalMonitor = nil
-        }
-    }
-
-    private func apply(_ alpha: CGFloat) {
-        guard let window else { return }
-        if window.alphaValue != alpha {
-            window.alphaValue = alpha
-        }
-    }
-}
-
-
 
 final class TouchBarFrameDeliveryCoalescer: @unchecked Sendable {
     private let lock = NSLock()
@@ -293,8 +113,7 @@ final class TouchBarSurfaceView: NSView {
               token.canDeliver(currentGeneration: self.frameGeneration,
                                deliveredSequence: self.deliveredSequence) else { return }
         self.deliveredSequence = token.sequence
-        self.displayedFrame = image
-        self.imageView.layer?.contents = image
+        self.replaceFrameContents(image)
         self.onGlassFrameDisplayed?()
     }
 
@@ -308,6 +127,9 @@ final class TouchBarSurfaceView: NSView {
 
         imageView.wantsLayer = true
         imageView.layer?.contentsGravity = .resizeAspect
+        imageView.layer?.minificationFilter = .trilinear
+        imageView.layer?.magnificationFilter = .linear
+        updateContentsScale()
         addSubview(imageView)
 
         statusLabel.textColor = .white
@@ -329,6 +151,28 @@ final class TouchBarSurfaceView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateContentsScale()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContentsScale()
+    }
+
+    private func updateContentsScale() {
+        imageView.layer?.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+    }
+
+    private func replaceFrameContents(_ image: CGImage?) {
+        displayedFrame = image
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageView.layer?.contents = image
+        CATransaction.commit()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -360,8 +204,7 @@ final class TouchBarSurfaceView: NSView {
                 generation: frameGeneration, sequence: frameSequence
             ), appearance: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light)
         } else {
-            displayedFrame = image
-            imageView.layer?.contents = image
+            replaceFrameContents(image)
             deliveredSequence = frameSequence
         }
     }
@@ -373,8 +216,7 @@ final class TouchBarSurfaceView: NSView {
         glassPipeline.discardPending()
         layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
         statusLabel.textColor = theme == .glass ? .labelColor : .white
-        imageView.layer?.contents = nil
-        displayedFrame = nil
+        replaceFrameContents(nil)
         if let image = latestOriginalFrame { display(image: image, alreadyComposed: latestFrameIsComposed, keepsDiagnostic: true) }
     }
 
@@ -383,8 +225,7 @@ final class TouchBarSurfaceView: NSView {
         renderingEnabled = enabled
         frameGeneration &+= 1
         glassPipeline.discardPending()
-        displayedFrame = nil
-        imageView.layer?.contents = nil
+        replaceFrameContents(nil)
         if enabled && reprocessRetainedFrame, let image = latestOriginalFrame {
             display(image: image, alreadyComposed: latestFrameIsComposed, keepsDiagnostic: true)
         }
@@ -395,8 +236,7 @@ final class TouchBarSurfaceView: NSView {
         glassPipeline.discardPending()
         latestOriginalFrame = nil
         latestFrameIsComposed = false
-        displayedFrame = nil
-        imageView.layer?.contents = nil
+        replaceFrameContents(nil)
         imageView.isHidden = true
         statusLabel.isHidden = true
     }
@@ -406,8 +246,7 @@ final class TouchBarSurfaceView: NSView {
         guard let original else { return }
         latestOriginalFrame = original
         if desktopTheme == .glass, let rendered {
-            displayedFrame = rendered
-            imageView.layer?.contents = rendered
+            replaceFrameContents(rendered)
             imageView.isHidden = false
         } else {
             display(image: original)
@@ -423,8 +262,7 @@ final class TouchBarSurfaceView: NSView {
         guard desktopTheme == .glass else { return }
         frameGeneration &+= 1
         glassPipeline.discardPending()
-        displayedFrame = nil
-        imageView.layer?.contents = nil
+        replaceFrameContents(nil)
         imageView.isHidden = true
     }
 
@@ -457,7 +295,7 @@ final class TouchBarSurfaceView: NSView {
         statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         statusLabel.stringValue = """
         当前 Mac 无物理 Touch Bar
-        点击切换按钮打开 Workspace，查看额度并启动应用
+        从状态栏菜单打开 Workspace，查看额度并启动应用
         """
         statusLabel.toolTip = statusLabel.stringValue
         statusLabel.isHidden = false
@@ -470,13 +308,14 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let rootView: TouchBarRootView
     private let desktopHost: DesktopGlassHostView
     private let capture: TouchBarCapture
-    private let hoverOpacityController: TouchBarHoverOpacityController
+    private let capsuleView: DesktopCapsuleView
+    private let capsuleController: DesktopCapsuleController
     private let functionKeyMonitor: TouchBarFunctionKeyMonitor
     private let quotaStore = QuotaSnapshotStore()
     private let workspaceTouchBarController = WorkspaceTouchBarController()
     private let switcherTouchBarController = SwitcherTouchBarController()
-    private var workspaceSwitcherWindowController:
-        WorkspaceSwitcherWindowController?
+    private let wakeTouchBarController = DesktopWakeTouchBarController()
+    private var isSynchronizingTouchBar = false
 
     private var hasRestoredFrame = false
     private var workspaceObservers: [NSObjectProtocol] = []
@@ -512,18 +351,19 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView = TouchBarRootView(
             frame: NSRect(origin: .zero, size: initialRootSize)
         )
-        desktopHost = DesktopGlassHostView(content: rootView)
+        capsuleView = DesktopCapsuleView(content: rootView)
+        desktopHost = DesktopGlassHostView(content: capsuleView, usesCapsuleShape: true)
 
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: initialRootSize),
-            styleMask: [.borderless, .resizable, .nonactivatingPanel],
+            contentRect: NSRect(origin: .zero, size: initialMirrorSize),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.backgroundColor = .black
+        panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
@@ -531,11 +371,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
         panel.isMovableByWindowBackground = false
         panel.ignoresMouseEvents = true
-        panel.acceptsMouseMovedEvents = true
         panel.becomesKeyOnlyIfNeeded = true
-        panel.minSize = TouchBarWindowMetrics.rootSize(
-            forMirrorSize: TouchBarWindowMetrics.minimumSize
-        )
+        panel.minSize = DesktopCapsuleLayout.minimumSize
         panel.animationBehavior = .none
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -548,9 +385,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 TouchBarPreferences.mirrorWindowAutosaveName
             )
         }
-        panel.setContentSize(initialRootSize)
+        panel.setContentSize(initialMirrorSize)
 
-        hoverOpacityController = TouchBarHoverOpacityController(window: panel)
+        capsuleController = DesktopCapsuleController(window: panel, view: capsuleView)
         let functionKeyMonitor = TouchBarFunctionKeyMonitor { [weak rootView] isPressed in
             rootView?.setFunctionKeyPressed(isPressed)
         }
@@ -579,8 +416,17 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
         hasRestoredFrame = restoredFrame
         panel.delegate = self
+        capsuleController.onExpansionChanged = { [weak self] _ in self?.synchronizePhysicalTouchBar() }
+        capsuleController.onAnimationStarted = { [weak self] in self?.synchronizePhysicalTouchBar() }
+        capsuleController.onAnimationCompleted = { [weak self] in self?.synchronizePhysicalTouchBar() }
+        wakeTouchBarController.onWake = { [weak self] in
+            guard let self, self.isRunning, !self.capsuleController.isExpanded else { return }
+            self.capsuleController.show()
+        }
+        wakeTouchBarController.onTouchReleased = { [weak self] in self?.synchronizePhysicalTouchBar() }
+        wakeTouchBarController.onPresentationInterrupted = { [weak self] in self?.synchronizePhysicalTouchBar() }
         installWorkspaceActions()
-        configureFloatingWorkspaceSwitcher()
+        configureDesktopCapsule()
         installWorkspaceObservers()
         persistCurrentPixelSize()
         reloadDesktopTheme()
@@ -588,11 +434,11 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     func reloadDesktopTheme() {
         let theme = DesktopThemePolicy.current
-        window?.backgroundColor = theme == .glass ? .clear : .black
+        window?.backgroundColor = .clear
         desktopHost.apply(theme: theme)
         rootView.apply(theme: theme)
-        hoverOpacityController.setTheme(theme)
-        workspaceSwitcherWindowController?.apply(theme: theme)
+        capsuleView.apply(theme: theme)
+        configureDesktopCapsule()
         updateFunctionKeyMonitoring()
     }
 
@@ -602,26 +448,21 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func start() {
+        guard !isRunning else { return }
         isRunning = true
+        if workspaceObservers.isEmpty { installWorkspaceObservers() }
 
         if !(displayPosition.restoresAutosavedFrame && hasRestoredFrame) {
             positionWindow()
         }
-        window?.orderFrontRegardless()
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
-        hoverOpacityController.start()
+        configureDesktopCapsule()
+        capsuleController.start()
 
         let enterWorkspace =
             SoftwareWorkspaceLaunchPolicy.shouldEnterWorkspaceAtLaunch(
                 usesSoftwareWorkspace: usesSoftwareWorkspace,
                 preferredScene: WorkspacePreferences.startupScene
             )
-        if SoftwareWorkspaceLaunchPolicy.shouldStartHardwareCapture(
-            usesSoftwareWorkspace: usesSoftwareWorkspace
-        ) {
-            capture.start()
-        }
         if enterWorkspace {
             if usesSoftwareWorkspace {
                 enterSoftwareWorkspace(isLaunch: true)
@@ -633,11 +474,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 rootView.surfaceView.displaySoftwareWorkspaceIdle()
             }
             presentPhysicalSwitcherIfNeeded()
-            updateMirrorClickThrough()
+            updateDesktopInteraction()
         }
-        hoverOpacityController.refresh()
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
+        configureDesktopCapsule()
+        synchronizePhysicalTouchBar()
     }
 
     func stop() {
@@ -645,8 +485,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         cancelWorkspaceAsyncWork(invalidateSession: true)
         workspaceTouchBarController.dismiss()
         switcherTouchBarController.dismiss()
-        workspaceSwitcherWindowController?.window?.orderOut(nil)
-        hoverOpacityController.stop()
+        wakeTouchBarController.dismiss()
+        capsuleController.stop()
         functionKeyMonitor.stop()
         capture.stop()
         let center = NSWorkspace.shared.notificationCenter
@@ -657,32 +497,15 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     func setDisplayPosition(_ position: TouchBarDisplayPosition) {
         displayPosition = position
         TouchBarPreferences.displayPosition = position
-        if position.restoresAutosavedFrame, let window {
-            let restored = window.setFrameUsingName(
-                TouchBarPreferences.mirrorWindowAutosaveName
-            )
-            hasRestoredFrame = restored
-            if restored {
-                let scale = window.screen?.backingScaleFactor
-                    ?? NSScreen.main?.backingScaleFactor
-                    ?? 2
-                let mirrorPointSize = TouchBarWindowMetrics.pointSize(
-                    forPixelSize: TouchBarPreferences.mirrorPixelSize,
-                    backingScaleFactor: scale
-                )
-                window.setContentSize(
-                    TouchBarWindowMetrics.rootSize(
-                        forMirrorSize: mirrorPointSize
-                    )
-                )
-                return
-            }
-        } else {
-            hasRestoredFrame = false
+        if position.restoresAutosavedFrame, let window,
+           window.setFrameUsingName(TouchBarPreferences.mirrorWindowAutosaveName) {
+            hasRestoredFrame = true
+            capsuleController.setExpanded(capsuleController.isExpanded, animated: false)
+            return
         }
+        hasRestoredFrame = false
         positionWindow()
     }
-
 
     var customTopLeft: CGPoint {
         guard let window else {
@@ -703,44 +526,28 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
 
     func suppressPhysicalSwitcherCloseBox() {
-        switcherTouchBarController.suppressCloseBox()
+        if wakeTouchBarController.isPresented { wakeTouchBarController.present() }
+        else { switcherTouchBarController.suppressCloseBox() }
     }
 
 
     func ensurePhysicalSwitcherPresented() {
-        presentPhysicalSwitcherIfNeeded()
+        synchronizePhysicalTouchBar()
         suppressPhysicalSwitcherCloseBox()
     }
 
-    var mirrorPixelSize: CGSize {
-        guard let window else {
-            return TouchBarPreferences.mirrorPixelSize
-        }
-        return TouchBarWindowMetrics.pixelSize(
-            forPointSize: rootView.mirrorViewportSize,
-            backingScaleFactor: window.screen?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 2
-        )
+    func toggleDesktopCapsule() {
+        capsuleController.toggle()
     }
 
+    var mirrorPixelSize: CGSize { TouchBarPreferences.mirrorPixelSize }
+
     func setMirrorPixelSize(_ pixelSize: CGSize) {
-        guard let window else { return }
-        let constrainedPixelSize = CGSize(
+        TouchBarPreferences.mirrorPixelSize = CGSize(
             width: max(pixelSize.width.rounded(), 1),
             height: max(pixelSize.height.rounded(), 1)
         )
-        let mirrorPointSize = TouchBarWindowMetrics.pointSize(
-            forPixelSize: constrainedPixelSize,
-            backingScaleFactor: window.screen?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 2
-        )
-        let mirrorOriginX = currentMirrorOriginX
-        window.setContentSize(
-            TouchBarWindowMetrics.rootSize(forMirrorSize: mirrorPointSize)
-        )
-        setWindowOriginPreservingMirrorX(mirrorOriginX)
+        configureDesktopCapsule()
         persistCurrentPixelSize()
     }
 
@@ -768,8 +575,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         if modeToStore != WorkspacePreferences.switcherDisplayMode {
             WorkspacePreferences.switcherDisplayMode = modeToStore
         }
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
+        configureDesktopCapsule()
         if effectiveSwitcherDisplayMode == .floating {
             switcherTouchBarController.dismiss()
         } else {
@@ -786,22 +592,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         WorkspacePreferences.startupScene = scene
     }
 
-    func windowDidResize(_ notification: Notification) {
-        persistCurrentPixelSize()
-        hoverOpacityController.refresh()
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        hoverOpacityController.refresh()
-    }
-
     func windowDidChangeScreen(_ notification: Notification) {
-        persistCurrentPixelSize()
-        hoverOpacityController.refresh()
-    }
-
-    func windowDidChangeOcclusionState(_ notification: Notification) {
-        hoverOpacityController.refresh()
+        configureDesktopCapsule()
     }
 
     func positionWindow() {
@@ -809,7 +601,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame
         let frame = window.frame
-        let mirrorSize = rootView.mirrorViewportSize
+        let mirrorSize = capsuleView.expandedSize
         let mirrorX = visibleFrame.midX - mirrorSize.width / 2
         let origin: NSPoint
         switch displayPosition {
@@ -854,12 +646,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             forPixelSize: TouchBarPreferences.mirrorPixelSize,
             backingScaleFactor: scale
         )
-        let rootSize = TouchBarWindowMetrics.rootSize(
-            forMirrorSize: mirrorPointSize
-        )
         let mirrorX = visibleFrame.midX - mirrorPointSize.width / 2
         let bottomY = screen?.frame.minY ?? 0
-        return CGPoint(x: mirrorX, y: bottomY + rootSize.height)
+        return CGPoint(x: mirrorX, y: bottomY + mirrorPointSize.height)
     }
 
     private func persistCurrentPixelSize() {
@@ -868,19 +657,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         onPixelSizeChanged?(pixelSize)
     }
 
-    private var currentMirrorOriginX: CGFloat {
-        guard let window else { return 0 }
-        return window.frame.minX
-    }
-
-    private func setWindowOriginPreservingMirrorX(_ mirrorOriginX: CGFloat) {
-        guard let window else { return }
-        var origin = window.frame.origin
-        origin.x = mirrorOriginX
-        window.setFrameOrigin(origin)
-    }
-
     private func installWorkspaceActions() {
+        rootView.workspaceView.onCollapse = { [weak self] in self?.capsuleController.setExpanded(false) }
+        workspaceTouchBarController.onCollapse = { [weak self] in self?.capsuleController.setExpanded(false) }
+        switcherTouchBarController.onCollapse = { [weak self] in self?.capsuleController.setExpanded(false) }
         workspaceTouchBarController.onQuotaScrollStateChanged = { [weak self] state in
             self?.rootView.workspaceView.mirrorQuotaScrollState(state)
         }
@@ -922,6 +702,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         if forceFloatingSwitcher {
             return .floating
         }
+        if !usesSoftwareWorkspace { return .touchBar }
         return SoftwareWorkspaceLaunchPolicy.effectiveSwitcherDisplayMode(
             usesSoftwareWorkspace: usesSoftwareWorkspace,
             preferred: WorkspacePreferences.switcherDisplayMode,
@@ -929,18 +710,19 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         )
     }
 
-    private func updateMirrorClickThrough() {
-        window?.ignoresMouseEvents = MirrorClickThroughPolicy.ignoresMouseEvents(
-            usesSoftwareWorkspace: usesSoftwareWorkspace,
-            scene: rootView.scene,
-            showsWorkspaceFallback: rootView.showsWorkspaceFallback
-        )
+    private func updateDesktopInteraction() {
+        let softwareControls = (usesSoftwareWorkspace || forceFloatingSwitcher)
+            && (rootView.scene == .mirror || rootView.showsWorkspaceFallback)
+        let ignores = DesktopTouchBarPolicy.ignoresPointer(expanded: capsuleController.isExpanded,
+            animating: capsuleController.isAnimating, softwareControls: softwareControls)
+        window?.ignoresMouseEvents = ignores
+        capsuleView.contentAcceptsMouseEvents = !ignores
         updateFunctionKeyMonitoring()
-        hoverOpacityController.refresh()
     }
 
     private func updateFunctionKeyMonitoring() {
         if isRunning && !isHardwareSessionPaused && !usesSoftwareWorkspace
+            && desktopTouchBarPresentation == .scene
             && rootView.scene == .workspace
             && !rootView.showsWorkspaceFallback {
             functionKeyMonitor.start()
@@ -949,45 +731,63 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func configureFloatingWorkspaceSwitcher() {
-        guard effectiveSwitcherDisplayMode == .floating else {
-            workspaceSwitcherWindowController?.window?.orderOut(nil)
-            workspaceSwitcherWindowController = nil
-            return
+    private func configureDesktopCapsule() {
+        let leftAnchor = window.map {
+            CGPoint(x: $0.frame.minX + 1, y: $0.frame.minY + 1)
         }
-        guard workspaceSwitcherWindowController == nil else {
-            workspaceSwitcherWindowController?.switcherView.setScene(
-                rootView.scene
-            )
-            return
-        }
-        let controller = WorkspaceSwitcherWindowController()
-        controller.apply(theme: DesktopThemePolicy.current)
-        controller.switcherView.onMouseDown = nil
-        controller.switcherView.onToggleScene = { [weak self] in
-            self?.toggleWorkspace()
-        }
-        controller.switcherView.setScene(rootView.scene)
-        workspaceSwitcherWindowController = controller
+        let screen = leftAnchor.flatMap { point in NSScreen.screens.first { $0.frame.contains(point) } }
+            ?? window?.screen ?? NSScreen.main
+        capsuleController.configure(
+            pixelSize: TouchBarPreferences.mirrorPixelSize,
+            backingScaleFactor: screen?.backingScaleFactor ?? 2
+        )
     }
 
-    private func showFloatingWorkspaceSwitcherIfNeeded() {
-        guard
-            isRunning,
-            effectiveSwitcherDisplayMode == .floating,
-            let controller = workspaceSwitcherWindowController,
-            let mirrorWindow = window
-        else {
-            return
+    private var desktopTouchBarPresentation: DesktopTouchBarPresentation {
+        DesktopTouchBarPolicy.presentation(running: isRunning, paused: isHardwareSessionPaused,
+            expanded: capsuleController.isExpanded, animating: capsuleController.isAnimating,
+            trackingWakeTouch: wakeTouchBarController.isTrackingTouch)
+    }
+
+    private func synchronizePhysicalTouchBar() {
+        guard !isSynchronizingTouchBar else { return }
+        isSynchronizingTouchBar = true
+        defer {
+            isSynchronizingTouchBar = false
+            updateDesktopInteraction()
         }
-        if !controller.hasRestoredFrame {
-            controller.positionBesideMirror(mirrorWindow)
+        guard !usesSoftwareWorkspace else { return }
+        switch desktopTouchBarPresentation {
+        case .inactive:
+            wakeTouchBarController.dismiss()
+            workspaceTouchBarController.dismiss()
+            switcherTouchBarController.dismiss()
+            capture.stop()
+        case .wake:
+            physicalWorkspacePresentationTask?.cancel()
+            physicalWorkspacePresentationTask = nil
+            rootView.suppressesCapture = true
+            capture.pause()
+            workspaceTouchBarController.dismiss()
+            switcherTouchBarController.dismiss()
+            wakeTouchBarController.present()
+        case .scene:
+            wakeTouchBarController.dismiss()
+            if rootView.scene == .workspace {
+                if !workspaceTouchBarController.isPresented {
+                    completeHardwareWorkspacePresentation(isLaunch: true)
+                }
+            } else {
+                presentPhysicalSwitcherIfNeeded()
+            }
+            rootView.suppressesCapture = false
+            capture.start()
         }
-        controller.window?.orderFrontRegardless()
     }
 
     private func presentPhysicalSwitcherIfNeeded() {
         guard isRunning, rootView.scene == .mirror else { return }
+        guard desktopTouchBarPresentation == .scene else { synchronizePhysicalTouchBar(); return }
         guard !usesSoftwareWorkspace else {
             switcherTouchBarController.dismiss()
             return
@@ -1009,20 +809,18 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             rootView.beginSceneTransitionCover()
         }
         rootView.setScene(.workspace)
-        workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
         switcherTouchBarController.dismiss()
         rootView.setWorkspaceFallbackVisible(true)
-        updateMirrorClickThrough()
+        updateDesktopInteraction()
 
         refreshQuotaDisplay()
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
+        configureDesktopCapsule()
         if !isLaunch {
             rootView.scheduleSceneTransitionCoverFade()
         }
     }
 
-    private func toggleWorkspace() {
+    func toggleWorkspace() {
         switch rootView.scene {
         case .mirror:
             if usesSoftwareWorkspace {
@@ -1041,14 +839,19 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             rootView.beginSceneTransitionCover()
         }
         rootView.setScene(.workspace)
-        workspaceSwitcherWindowController?.switcherView.setScene(.workspace)
         switcherTouchBarController.dismiss()
+        guard desktopTouchBarPresentation == .scene else {
+            rootView.setWorkspaceFallbackVisible(true)
+            refreshQuotaDisplay()
+            configureDesktopCapsule()
+            synchronizePhysicalTouchBar()
+            return
+        }
 
         if rootView.desktopTheme == .glass {
             rootView.setWorkspaceFallbackVisible(false)
-            updateMirrorClickThrough()
-            configureFloatingWorkspaceSwitcher()
-            showFloatingWorkspaceSwitcherIfNeeded()
+            updateDesktopInteraction()
+            configureDesktopCapsule()
             physicalWorkspacePresentationTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(17))
                 guard !Task.isCancelled, let self,
@@ -1062,17 +865,17 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func completeHardwareWorkspacePresentation(isLaunch: Bool) {
+        guard desktopTouchBarPresentation == .scene else { return }
         do {
             try workspaceTouchBarController.present()
             forceFloatingSwitcher = false
             rootView.setWorkspaceFallbackVisible(false)
-            updateMirrorClickThrough()
+            updateDesktopInteraction()
         } catch {
             forceFloatingSwitcher = true
             rootView.setWorkspaceFallbackVisible(true)
-            updateMirrorClickThrough()
-            configureFloatingWorkspaceSwitcher()
-            showFloatingWorkspaceSwitcherIfNeeded()
+            updateDesktopInteraction()
+            configureDesktopCapsule()
             refreshQuotaDisplay()
             if !isLaunch {
                 rootView.scheduleSceneTransitionCoverFade()
@@ -1081,8 +884,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
 
         refreshQuotaDisplay()
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
+        rootView.suppressesCapture = false
+        capture.start()
+        configureDesktopCapsule()
         if !isLaunch {
             rootView.scheduleSceneTransitionCoverFade()
         }
@@ -1100,16 +904,13 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
         rootView.setWorkspaceFallbackVisible(false)
         rootView.setScene(.mirror)
-        workspaceSwitcherWindowController?.switcherView.setScene(.mirror)
         if usesSoftwareWorkspace {
             rootView.surfaceView.displaySoftwareWorkspaceIdle()
         }
-        updateMirrorClickThrough()
+        updateDesktopInteraction()
         forceFloatingSwitcher = false
-        configureFloatingWorkspaceSwitcher()
-        showFloatingWorkspaceSwitcherIfNeeded()
+        configureDesktopCapsule()
         presentPhysicalSwitcherIfNeeded()
-        hoverOpacityController.refresh()
         rootView.scheduleSceneTransitionCoverFade()
     }
 
@@ -1124,9 +925,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         rootView.beginSceneTransitionCover()
         rootView.setWorkspaceFallbackVisible(false)
         rootView.setScene(.mirror)
-        workspaceSwitcherWindowController?.switcherView.setScene(.mirror)
         presentPhysicalSwitcherIfNeeded()
-        updateMirrorClickThrough()
+        updateDesktopInteraction()
         rootView.scheduleSceneTransitionCoverFade()
     }
 
@@ -1254,6 +1054,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                                     == .workspace
                             )
                         self.isHardwareSessionPaused = true
+                        self.wakeTouchBarController.dismiss()
                         self.updateFunctionKeyMonitoring()
                         if self.rootView.scene == .workspace,
                            !self.usesSoftwareWorkspace
@@ -1279,24 +1080,21 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 ) { [weak self] _ in
                     Task { @MainActor [weak self] in
                         guard let self, self.isRunning else { return }
+                        self.rootView.suppressesCapture = true
+                        self.capture.pause()
+                        self.wakeTouchBarController.dismiss()
+                        self.workspaceTouchBarController.dismiss()
+                        self.switcherTouchBarController.dismiss()
                         self.isHardwareSessionPaused = false
-                        self.updateFunctionKeyMonitoring()
-                        switch TouchBarResumePolicy.action(
-                            usesSoftwareWorkspace: self.usesSoftwareWorkspace,
-                            restoreWorkspace: self.resumeToWorkspace
-                        ) {
-                        case .restoreSoftwareWorkspace:
+                        if self.usesSoftwareWorkspace {
                             if self.rootView.scene != .workspace {
                                 self.enterSoftwareWorkspace(isLaunch: true)
                             }
-                        case .restartHardwareCapture:
-                            self.capture.restart()
-                            self.presentPhysicalSwitcherIfNeeded()
-                        case .restoreHardwareWorkspace:
-                            self.capture.restart()
+                        } else if self.resumeToWorkspace && self.rootView.scene != .workspace {
                             self.enterHardwareWorkspace(isLaunch: true)
                         }
                         self.resumeToWorkspace = false
+                        self.synchronizePhysicalTouchBar()
                     }
                 }
             )

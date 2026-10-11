@@ -26,6 +26,7 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
     private var detachmentTask: Task<Void, Never>?
     private(set) var isPresented = false
     var onToggleWorkspace: (() -> Void)?
+    var onCollapse: (() -> Void)?
 
     var onPresentationInterrupted: (() -> Void)?
 
@@ -37,6 +38,7 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
         hostView.onToggle = { [weak self] in
             self?.onToggleWorkspace?()
         }
+        hostView.onCollapse = { [weak self] in self?.onCollapse?() }
         hostView.onWindowAttachmentChanged = { [weak self] attached in
             self?.handleWindowAttachmentChanged(attached)
         }
@@ -130,8 +132,10 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
 private final class SwitcherTouchBarHostView: NSView {
     var onWindowAttachmentChanged: ((Bool) -> Void)?
     var onToggle: (() -> Void)?
+    var onCollapse: (() -> Void)?
 
     private let button = NSButton()
+    private let collapseButton = NSButton()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -150,9 +154,23 @@ private final class SwitcherTouchBarHostView: NSView {
         button.action = #selector(toggle)
         button.translatesAutoresizingMaskIntoConstraints = false
         addSubview(button)
+        collapseButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "隐藏 ToubarReplace")
+        collapseButton.contentTintColor = .white
+        collapseButton.isBordered = false
+        collapseButton.imagePosition = .imageOnly
+        collapseButton.target = self
+        collapseButton.action = #selector(collapse)
+        collapseButton.setAccessibilityLabel("隐藏 ToubarReplace")
+        collapseButton.setAccessibilityIdentifier("ToubarReplace.TouchBar.Collapse")
+        collapseButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(collapseButton)
         NSLayoutConstraint.activate([
             button.leadingAnchor.constraint(equalTo: leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            collapseButton.leadingAnchor.constraint(equalTo: button.trailingAnchor, constant: 6),
+            collapseButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            collapseButton.topAnchor.constraint(equalTo: topAnchor),
+            collapseButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            collapseButton.widthAnchor.constraint(equalToConstant: WorkspaceTouchBarLayout.collapseButtonWidth),
             button.topAnchor.constraint(equalTo: topAnchor),
             button.bottomAnchor.constraint(equalTo: bottomAnchor),
             button.widthAnchor.constraint(equalToConstant: 44),
@@ -174,4 +192,6 @@ private final class SwitcherTouchBarHostView: NSView {
     private func toggle() {
         onToggle?()
     }
+
+    @objc private func collapse() { onCollapse?() }
 }

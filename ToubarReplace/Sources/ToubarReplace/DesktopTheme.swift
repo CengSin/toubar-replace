@@ -18,12 +18,6 @@ enum DesktopThemePolicy {
     static var current: DesktopTheme {
         effectiveTheme(enabled: TouchBarPreferences.glassThemeEnabled, supportsGlass: supportsGlass)
     }
-
-    static func targetAlpha(theme: DesktopTheme, isMouseInside: Bool, overlapsOtherApp: Bool) -> CGFloat {
-        theme == .glass ? 1 : TouchBarHoverOpacity.targetAlpha(
-            isMouseInside: isMouseInside, overlapsOtherApp: overlapsOtherApp
-        )
-    }
 }
 
 @MainActor
@@ -46,9 +40,11 @@ final class DesktopGlassHostView: NSView {
     let hostedContent: NSView
     private(set) var theme: DesktopTheme = .black
     private var glassView: NSView?
+    private let usesCapsuleShape: Bool
 
-    init(content: NSView) {
+    init(content: NSView, usesCapsuleShape: Bool = false) {
         hostedContent = content
+        self.usesCapsuleShape = usesCapsuleShape
         super.init(frame: content.frame)
         autoresizingMask = [.width, .height]
         content.autoresizingMask = [.width, .height]
@@ -87,7 +83,7 @@ final class DesktopGlassHostView: NSView {
         glassView?.frame = bounds
         hostedContent.frame = bounds
         if #available(macOS 26, *), let glass = glassView as? NSGlassEffectView {
-            glass.cornerRadius = min(bounds.height / 2, 18)
+            glass.cornerRadius = usesCapsuleShape ? min(bounds.width, bounds.height) / 2 : min(bounds.height / 2, 18)
         }
     }
 

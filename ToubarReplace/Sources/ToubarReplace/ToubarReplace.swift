@@ -49,13 +49,13 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
         )
 
         let menu = NSMenu()
-        let toggleItem = NSMenuItem(
-            title: "显示或隐藏 Touch Bar",
-            action: #selector(toggleWindow),
-            keyEquivalent: ""
-        )
-        toggleItem.target = self
-        menu.addItem(toggleItem)
+        let capsuleItem = NSMenuItem(title: "显示 / 隐藏 ToubarReplace", action: #selector(toggleCapsule), keyEquivalent: "")
+        capsuleItem.target = self
+        menu.addItem(capsuleItem)
+
+        let workspaceItem = NSMenuItem(title: "切换 Touch Bar / Workspace", action: #selector(toggleWorkspace), keyEquivalent: "")
+        workspaceItem.target = self
+        menu.addItem(workspaceItem)
 
         let settingsItem = NSMenuItem(
             title: "设置…",
@@ -214,14 +214,10 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
-    private func toggleWindow() {
-        guard let window = windowController?.window else { return }
-        if window.isVisible {
-            window.orderOut(nil)
-        } else {
-            window.orderFrontRegardless()
-        }
-    }
+    private func toggleCapsule() { windowController?.toggleDesktopCapsule() }
+
+    @objc
+    private func toggleWorkspace() { windowController?.toggleWorkspace() }
 
     private func chooseCustomApplication(
         completion: @escaping (URL?) -> Void

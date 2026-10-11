@@ -3,31 +3,34 @@
 ## 桌面 Touch Bar 镜像展示窗口
 - 用户称呼：桌面 Touch Bar、镜像浮窗、镜像窗口、桌面条
 - 入口：
-  - 应用启动后常驻在桌面（当启动场景为镜像，或在镜像模式下）
-  - 通过菜单栏「显示或隐藏 Touch Bar」重新显示
+  - 应用启动后按配置尺寸展示镜像
+  - 手动隐藏后轻触 Touch Bar 任意位置，或使用状态栏菜单激活界面
 - 关键选择器：
-  - 窗口类型：`NSPanel`（`styleMask: [.borderless, .resizable, .nonactivatingPanel]`, `level: .floating`）
+  - 窗口类型：`NSPanel`（`styleMask: [.borderless, .nonactivatingPanel]`, `level: .floating`）
   - 窗口 Frame Autosave：`ToubarReplaceMirrorWindow`
-  - 画面承载视图：`TouchBarSurfaceView`（`imageView.layer?.contentsGravity = .resizeAspect`）
-  - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `.clear` 样式的 `NSGlassEffectView`，通过 `contentView` 承载 `TouchBarRootView`）
-  - 镜像背景处理：`MirrorGlassFrameRenderer`、`MirrorGlassFramePipeline`（保留 `latestOriginalFrame`，普通镜像处理近黑空白及系统灰色底块，使用 `MirrorGlassAppearance` 适配单色符号）
+  - 画面承载视图：`TouchBarSurfaceView`（`contentsGravity = .resizeAspect`，`contentsScale` 跟随屏幕，缩小时使用 `.trilinear` 采样，逐帧通过 `replaceFrameContents(_:)` 即时更新）
+  - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `.clear` 样式的 `NSGlassEffectView`，通过 `contentView` 承载 `DesktopCapsuleView` 及内部 `TouchBarRootView`）
+  - 镜像背景处理：`MirrorGlassFrameRenderer`、`MirrorGlassFramePipeline`、`TBRMirrorFrameProcess`（复用原生像素缓冲区，识别黑底和圆角灰色底板，使用 `MirrorGlassAppearance` 适配单色符号，保留 `latestOriginalFrame`）
   - 物理用量横滑同步：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`（同步物理用量区视口、内容宽度与横滑位置）
   - Fn 显示同步：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarSurfaceView.onGlassFrameDisplayed`（读取当前 Fn 状态，等待新捕获完成玻璃合成后显示系统临时画面）
   - 状态提示文本：`statusLabel`（`NSTextField`，全黑主题白字，毛玻璃主题使用自适应前景）
     - 初始状态："正在读取 Touch Bar…"
-    - 无硬件状态："当前 Mac 无物理 Touch Bar\n点击切换按钮打开 Workspace，查看额度并启动应用"
+    - 无硬件状态："当前 Mac 无物理 Touch Bar\n从状态栏菜单打开 Workspace，查看额度并启动应用"
     - 错误状态："\(error.localizedDescription)\n\n恢复命令（终端）：\n\(ToubarReplaceAppInfo.recoveryCommands)"
   - 切换过渡遮罩：`MirrorSceneTransition`（全黑转场 `settleDuration: 221ms`、`fadeDuration: 0.12s`；玻璃切换直接更新场景）
-  - 鼠标悬停透明度控制器：`TouchBarHoverOpacityController`（全黑主题下正常 `alpha = 1.0`，鼠标悬停或覆盖其他 App 窗口时 `alpha = 0.3`；毛玻璃主题保持 `1.0`）
+  - 桌面收放容器：`DesktopCapsuleView`、`DesktopCapsuleController`（左端固定，唤醒时弹性展开至配置宽高，内容占满界面）
 - 子功能：
+  - 唤醒层与捕获调度：隐藏与展开动画期间保留原场景画面，抑制唤醒层捕获；恢复正常物理控件后接入显示流
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
-  - 鼠标穿透点击：在镜像场景下 `ignoresMouseEvents = true`，鼠标点击穿透至桌面底层应用程序，窗口不可随意拖拽
-  - 全黑主题悬停半透明：全局鼠标监视检测，进入窗口区域立即淡化至 0.3 不透明度；每 0.5 秒检测主条与下方其他 App 可见普通窗口的重叠，重叠时保持 0.3（包括全屏窗口），鼠标离开且无重叠后恢复 1.0
-  - Dock 风格桌面玻璃：设置开启后使用原生圆角玻璃底板，去除镜像近黑空白及可识别的系统灰色底块；单色符号保持形状和抗锯齿并适配明暗外观，彩色图标及内部深色细节保留；关闭时立即恢复最近的原始帧
-  - 原生毛玻璃工作台：`WorkspaceBarView` 沿用原生玻璃上的文字、卡片与 App 控件。有物理栏时，手指操作由物理控件处理，桌面保持鼠标穿透；用量区通过 `NSView.boundsDidChangeNotification` 同步物理横滑位置，原生滚动容器即时移动已有卡片。软件回退工作台接收桌面操作
-  - Fn 功能键同步：硬件毛玻璃 Workspace 中按住 Fn，保留当前原生毛玻璃工作台，等待新的 F1～F12 等系统临时捕获完成玻璃合成后切换显示；按 `TouchBarFrameSignature` 过滤延迟和乱序的旧 Workspace 帧。松开后立即恢复原生毛玻璃工作台，保持 Workspace 场景、用量横滑状态与鼠标穿透。读取 Fn 状态随硬件工作台启停，并在睡眠时停止、唤醒时重新读取；按住 Fn 开启毛玻璃时可合成已捕获的功能键画面
+  - 桌面默认展示：启动时按配置尺寸展示当前场景；硬件镜像采用鼠标穿透，位置由设置控制
+  - 手动显隐与激活：状态栏菜单或物理隐藏键通过 `orderOut` 隐藏整个窗口；Touch Bar 整条轻触唤醒，抬手和动画完成后恢复原场景操作；进入与退出全屏、切换 Space 时保持当前显隐状态
+  - 物理场景控制：网格键进入 Workspace，下箭头隐藏界面，隐藏后物理栏恢复整条唤醒入口
+  - 统一桌面玻璃：设置开启后使用同一原生圆角玻璃底板，镜像的黑色空白与圆角灰色按钮背景融入玻璃；单色符号和内部镂空恢复连续透明度，图标轮廓适配明暗外观；彩色图标边缘去除背景混色，内部深色细节保留；关闭时立即恢复最近的原始帧
+  - 流畅画面更新：原生处理复用背景、图标保护和边缘缓冲区，后台队列与主线程分别合并待处理帧；图层即时换帧，缩放采样跟随当前屏幕的 backing scale
+  - 原生毛玻璃工作台：`WorkspaceBarView` 沿用原生玻璃上的文字、卡片与 App 控件。有物理栏时，手指操作由物理控件处理；用量区通过 `NSView.boundsDidChangeNotification` 同步物理横滑位置，原生滚动容器即时移动已有卡片。软件回退工作台接收桌面操作
+  - Fn 功能键同步：硬件毛玻璃 Workspace 中按住 Fn，保留当前原生毛玻璃工作台，等待新的 F1～F12 等系统临时捕获完成玻璃合成后切换显示；按 `TouchBarFrameSignature` 过滤延迟和乱序的旧 Workspace 帧。松开后立即恢复原生毛玻璃工作台，保持 Workspace 场景与用量横滑状态。读取 Fn 状态随硬件工作台启停，并在睡眠时停止、唤醒时重新读取；按住 Fn 开启毛玻璃时可合成已捕获的功能键画面
   - 物理视口联动：玻璃用量区按物理视口决定卡片是否溢出，并按桌面显示宽度映射横滑位置；物理栏尺寸变化、推荐排序与额度刷新同步更新。隐藏的硬件镜像保留最近原始帧，关闭毛玻璃时恢复捕获画面
-  - 主题联动淡化生命周期：玻璃生效时窗口保持 1.0，并停止淡化用鼠标监视和遮挡计时器；恢复全黑时立即重新检测当前鼠标与遮挡状态
+  - 主题联动胶囊：全黑与毛玻璃共享配置宽高、展开淡入、手动显隐与触控唤醒行为，主题切换保留当前显隐状态
   - 平滑场景切换：玻璃 Workspace 立即显示原生工作台，返回时立即恢复最近镜像前景；真实捕获重排等待 221ms 后接入新镜像帧，并在返回后的 1 秒内按 `TouchBarFrameSignature` 排除旧 Workspace 帧；快速反向切换取消旧等待任务。全黑主题保留原始帧覆盖与 0.12s 淡出
   - 玻璃切换调度：进入时更新场景，延后一帧执行物理呈现；快速返回或停止时通过 Workspace 会话代次取消尚未执行的呈现任务
   - 故障提示与重置引导：画面出现黑屏或系统 Control Strip 异常时，自动展示终端恢复命令；硬件玻璃 Workspace 同样展示捕获诊断，主题重切时保留提示，收到健康原始帧后恢复原生工作台
@@ -37,4 +40,4 @@
   - 无物理 Touch Bar 机器：进入软件空闲说明态，引导用户打开 Workspace
 - 常见故障现象：
   - 窗口全黑或白屏：macOS Control Strip 配置损坏或显示流断连，需在终端执行 `defaults delete com.apple.controlstrip ... && killall ControlStrip`
-  - 鼠标点击被拦截无法操作桌面下方窗口：误切入桌面软件 Workspace 模式（软件 Workspace 允许鼠标交互，而镜像模式穿透鼠标）
+  - 需要查看底部内容：使用物理隐藏键或状态栏菜单隐藏界面

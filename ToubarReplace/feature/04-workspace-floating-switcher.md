@@ -1,31 +1,30 @@
-# 独立切换浮窗 (Workspace Floating Switcher)
+# 桌面展示与 Touch Bar 唤醒
 
-## 桌面悬浮切换按钮
-- 用户称呼：浮窗切换钮、小方块、切换按钮、桌面切换钮、悬浮窗
+## 桌面展示与手动显隐
+- 用户称呼：桌面 Touch Bar、Touch Bar 唤醒、界面显隐
 - 入口：
-  - 设置中「切换按钮」选为「独立浮窗」
-  - 或在 Apple Silicon / 无物理 Touch Bar 的 Mac 上自动强制启用
+  - 应用启动后直接展示当前镜像或 Workspace 场景
+  - 手动隐藏后轻触物理 Touch Bar 任意位置激活界面
+  - 顶部状态栏菜单 →「显示 / 隐藏 ToubarReplace」控制显隐；「切换 Touch Bar / Workspace」控制场景
 - 关键选择器：
-  - 窗口类型：`NSPanel`（`styleMask: [.borderless, .nonactivatingPanel]`, `level: .floating`）
-  - 窗口 Frame Autosave：`ToubarReplaceWorkspaceSwitcherWindow`
-  - 浮窗视图：`WorkspaceFloatingSwitcherView`（固定尺寸: `48 × 36` pt）
-  - 材质承载：`DesktopGlassHostView`（毛玻璃时使用 `.clear` 样式的原生 `NSGlassEffectView`）
-  - 无障碍角色：`setAccessibilityRole(.button)`
-  - 镜像模式下控件：
-    - 图标：`square.grid.2x2`
-    - 无障碍标签：`accessibilityLabel: "打开 Workspace"`
-    - Tooltip：`"点击打开 Workspace；长按拖动可调整位置"`
-  - Workspace 模式下控件：
-    - 图标：`rectangle.on.rectangle.slash`
-    - 无障碍标签：`accessibilityLabel: "返回 Touch Bar 镜像"`
-    - Tooltip：`"点击返回 Touch Bar 镜像；长按拖动可调整位置"`
+  - 桌面窗口：`NSPanel`，Frame Autosave：`ToubarReplaceMirrorWindow`
+  - 桌面容器：`DesktopCapsuleView`、`DesktopCapsuleController`、`DesktopCapsuleSpring`、`DesktopCapsuleLayout`
+  - 桌面容器 Accessibility Identifier：`ToubarReplace.DesktopCapsule`
+  - 物理唤醒层：`DesktopWakeTouchBarController`，Placement `1`，PresentationModeGlobal：`app`
+  - 唤醒主区 Item Identifier：`com.toubarreplace.desktop.wake`，为唯一 `defaultItemIdentifiers`
+  - 唤醒 Escape 槽 Item Identifier：`com.toubarreplace.desktop.wake.escape`，注册于 `escapeKeyReplacementItemIdentifier`
+  - 唤醒视图：`DesktopWakeRegionView`、`DesktopWakeButton`，Accessibility Identifier：`ToubarReplace.TouchBar.Wake`
+  - 物理隐藏键 Accessibility Identifier：`ToubarReplace.TouchBar.Collapse`，图标：`chevron.down`
 - 子功能：
-  - 桌面外观联动：随设置中的毛玻璃开关即时切换圆角玻璃和既有深色底板，图标前景适配明暗外观；按钮尺寸保持 48 × 36pt
-  - 短按快速切换场景：按压时长 < 350ms 且鼠标位移 < 4pt 时触发切换，快速在 Touch Bar 镜像与 Workspace 触控台间转换
-  - 长按与拖动调整位置：按压时长 ≥ 350ms 或位移 ≥ 4pt 时判定为拖动，用户可自由将浮窗拖到屏幕任意位置，释放后自动保存窗口坐标
-  - 自动贴边初始化：首次打开且无保存坐标时，默认贴靠在桌面镜像窗口左侧（若屏幕空间不足则排在右侧）
-  - 支持辅助功能按下：实现 `accessibilityPerformPress()` 响应辅助按键
-- 前置条件：切换按钮模式配置为独立浮窗，或运行于无物理栏设备
+  - 完整隐藏：状态栏菜单或物理隐藏键控制窗口通过 `orderOut` 退出显示；保留原场景、配置尺寸与位置
+  - 整条盲点唤醒：隐藏时主区、Escape 槽统一为唤醒入口，系统控制区让位于全宽唤醒层；激活后恢复原来的镜像或 Workspace 场景
+  - 唤醒操作隔离：唤醒键在抬手时激活界面；动画完成且唤醒触摸结束后恢复正常物理控件，期间由唤醒层承接触摸
+  - 显隐状态保持：进入与退出全屏、切换应用或 Space 时保持当前显示或隐藏状态
+  - 固定位置：位置由设置控制；唤醒展开时左端坐标固定；硬件镜像采用鼠标穿透
+  - 配置尺寸：内容占用完整配置宽高；Retina 2× 下默认 2300 × 70px 换算为 1150 × 35pt；隐藏期间修改尺寸后，下次激活使用新尺寸
+  - 弹性与淡入：唤醒时宽度从 48pt 展开至配置宽度，spring response 为 0.36s、damping ratio 为 0.82，内容随展开进度淡入；「减少动态效果」直接显示目标尺寸
+  - 统一主题：全黑与毛玻璃共享显隐、定位与唤醒逻辑；隐藏和展开动画期间保留原场景内容，正常触控恢复后重新接入捕获
+- 前置条件：应用已启动；物理唤醒需要可用的 Touch Bar 与 System Modal API；毛玻璃主题在 macOS 26 及以上手动开启
 - 常见故障现象：
-  - 点击浮窗变成拖拽：点击时鼠标有抖动位移超过 4pt，触发了防误触拖动阈值
-  - 拖拽后浮窗超出屏幕：拖出屏幕可见区域时，系统下一次对齐会自动归入可视屏幕安全边界
+  - 位置需要调整：在设置中选择底部、顶部、居中或自定义坐标
+  - 唤醒区域暂时脱离：应用监听窗口挂载，自动重建唤醒层；睡眠时释放，唤醒后按当前显隐状态恢复

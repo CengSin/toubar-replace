@@ -6,210 +6,9 @@ enum BarScene {
 }
 
 @MainActor
-final class WorkspaceFloatingSwitcherView: NSView {
-    enum Gesture {
-        static let maximumClickDuration: TimeInterval = 0.35
-        static let dragThreshold: CGFloat = 4
-
-        static func shouldToggle(
-            duration: TimeInterval,
-            distance: CGFloat
-        ) -> Bool {
-            duration < maximumClickDuration && distance < dragThreshold
-        }
-    }
-
-    private let imageView = NSImageView()
-    private(set) var scene: BarScene = .mirror
-
-    var onMouseDown: (() -> Void)?
-    var onToggleScene: (() -> Void)?
-
-    func apply(theme: DesktopTheme) {
-        layer?.backgroundColor = (theme == .glass ? NSColor.clear : WorkspaceTouchBarStyle.itemBackground).cgColor
-        imageView.contentTintColor = theme == .glass ? .labelColor : .white
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = WorkspaceTouchBarStyle.itemBackground.cgColor
-        layer?.cornerRadius = WorkspaceTouchBarStyle.cornerRadius
-        layer?.borderWidth = 0
-
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.contentTintColor = .white
-        addSubview(imageView)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        updateAppearance()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func layout() {
-        super.layout()
-        imageView.frame = bounds.insetBy(dx: 13, dy: 8)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let window else {
-            onMouseDown?()
-            onToggleScene?()
-            return
-        }
-        let initialMouseLocation = NSEvent.mouseLocation
-        let originalOrigin = window.frame.origin
-        var maximumDistance: CGFloat = 0
-        var didDrag = false
-        var mouseUpTimestamp = event.timestamp
-
-        while let nextEvent = window.nextEvent(
-            matching: [.leftMouseDragged, .leftMouseUp],
-            until: .distantFuture,
-            inMode: .eventTracking,
-            dequeue: true
-        ) {
-            let mouseLocation = NSEvent.mouseLocation
-            let deltaX = mouseLocation.x - initialMouseLocation.x
-            let deltaY = mouseLocation.y - initialMouseLocation.y
-            let distance = hypot(deltaX, deltaY)
-            maximumDistance = max(maximumDistance, distance)
-
-            if nextEvent.type == .leftMouseUp {
-                mouseUpTimestamp = nextEvent.timestamp
-                break
-            }
-
-            let duration = nextEvent.timestamp - event.timestamp
-            if distance >= Gesture.dragThreshold
-                || duration >= Gesture.maximumClickDuration
-            {
-                didDrag = true
-            }
-            if didDrag {
-                window.setFrameOrigin(
-                    NSPoint(
-                        x: originalOrigin.x + deltaX,
-                        y: originalOrigin.y + deltaY
-                    )
-                )
-            }
-        }
-
-        let duration = mouseUpTimestamp - event.timestamp
-        if !didDrag && Gesture.shouldToggle(
-            duration: duration,
-            distance: maximumDistance
-        ) {
-            onMouseDown?()
-            onToggleScene?()
-        }
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        onMouseDown?()
-        onToggleScene?()
-        return true
-    }
-
-    func setScene(_ scene: BarScene) {
-        self.scene = scene
-        updateAppearance()
-    }
-
-    private func updateAppearance() {
-        switch scene {
-        case .mirror:
-            imageView.image = NSImage(
-                systemSymbolName: "square.grid.2x2",
-                accessibilityDescription: "打开 Workspace"
-            )
-            toolTip = "点击打开 Workspace；长按拖动可调整位置"
-            setAccessibilityLabel("打开 Workspace")
-        case .workspace:
-            imageView.image = NSImage(
-                systemSymbolName: "rectangle.on.rectangle.slash",
-                accessibilityDescription: "返回 Touch Bar 镜像"
-            )
-            toolTip = "点击返回 Touch Bar 镜像；长按拖动可调整位置"
-            setAccessibilityLabel("返回 Touch Bar 镜像")
-        }
-    }
-}
-
-@MainActor
-final class WorkspaceSwitcherWindowController: NSWindowController {
-    static let size = NSSize(width: 48, height: 36)
-
-    let switcherView: WorkspaceFloatingSwitcherView
-    private let desktopHost: DesktopGlassHostView
-    private(set) var hasRestoredFrame = false
-
-    init() {
-        switcherView = WorkspaceFloatingSwitcherView(
-            frame: NSRect(origin: .zero, size: Self.size)
-        )
-        desktopHost = DesktopGlassHostView(content: switcherView)
-        let panel = NSPanel(
-            contentRect: switcherView.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.animationBehavior = .none
-        panel.contentView = desktopHost
-        panel.setFrameAutosaveName("ToubarReplaceWorkspaceSwitcherWindow")
-        hasRestoredFrame = panel.setFrameUsingName(
-            "ToubarReplaceWorkspaceSwitcherWindow"
-        )
-        panel.setContentSize(Self.size)
-        super.init(window: panel)
-        apply(theme: DesktopThemePolicy.current)
-    }
-
-    func apply(theme: DesktopTheme) {
-        desktopHost.apply(theme: theme)
-        switcherView.apply(theme: theme)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func positionBesideMirror(_ mirrorWindow: NSWindow) {
-        guard let window else { return }
-        let gap: CGFloat = 8
-        var origin = NSPoint(
-            x: mirrorWindow.frame.minX - window.frame.width - gap,
-            y: mirrorWindow.frame.midY - window.frame.height / 2
-        )
-        if origin.x < (mirrorWindow.screen?.visibleFrame.minX ?? 0) {
-            origin.x = mirrorWindow.frame.maxX + gap
-        }
-        window.setFrameOrigin(origin)
-    }
-}
-
-@MainActor
 final class WorkspaceBarView: NSView {
     private let switcherButton = WorkspaceChromeButton()
+    private let collapseButton = DesktopCapsuleButton(frame: .zero)
     private let trayView = NSView()
     private let quotaPlate = QuotaPlateView()
     private let customAppsView = WorkspaceCustomAppsView()
@@ -224,6 +23,7 @@ final class WorkspaceBarView: NSView {
         layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
         trayView.layer?.backgroundColor = (theme == .glass ? NSColor.clear : WorkspaceTouchBarStyle.trayBackground).cgColor
         switcherButton.desktopTheme = theme
+        collapseButton.apply(theme: theme)
         quotaPlate.setDesktopTheme(theme)
         customAppsView.setDesktopTheme(theme)
         effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -237,6 +37,7 @@ final class WorkspaceBarView: NSView {
     }
 
     var onToggleWorkspace: (() -> Void)?
+    var onCollapse: (() -> Void)?
     var onOpenSettings: (() -> Void)? {
         didSet { customAppsView.onOpenSettings = onOpenSettings }
     }
@@ -261,6 +62,9 @@ final class WorkspaceBarView: NSView {
         switcherButton.toolTip = "点击返回 Touch Bar 镜像"
         switcherButton.setAccessibilityLabel("返回 Touch Bar 镜像")
         addSubview(switcherButton)
+        collapseButton.setSymbol("chevron.down", label: "隐藏 ToubarReplace", tooltip: "使用 Touch Bar 隐藏键或状态栏菜单")
+        collapseButton.onPress = { [weak self] in self?.onCollapse?() }
+        addSubview(collapseButton)
 
         trayView.wantsLayer = true
         trayView.layer?.backgroundColor =
@@ -329,6 +133,7 @@ final class WorkspaceBarView: NSView {
 
         let strip = WorkspaceTouchBarLayout.stripFrames(in: bounds)
         switcherButton.frame = strip.switcher
+        collapseButton.frame = strip.collapse
         trayView.frame = strip.tray
         let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(strip.quota)
         let plateHeight = max(
@@ -393,8 +198,10 @@ final class TouchBarRootView: NSView {
     private(set) var hasCaptureDiagnostic = false
     private(set) var isFunctionKeyPressed = false
     private(set) var showsFunctionKeyCapture = false
+    var suppressesCapture = false
 
     func displayCapture(image: CGImage) {
+        guard !suppressesCapture else { return }
         if scene == .workspace && !showsWorkspaceFallback,
            let signature = TouchBarFrameSignature(image: image) {
             if isFunctionKeyPressed {
@@ -438,6 +245,7 @@ final class TouchBarRootView: NSView {
     }
 
     func displayCapture(notice: TouchBarCaptureNotice) {
+        guard !suppressesCapture else { return }
         cancelMirrorReturn()
         hasCaptureDiagnostic = true
         showsFunctionKeyCapture = false
@@ -446,6 +254,7 @@ final class TouchBarRootView: NSView {
     }
 
     func displayCapture(error: TouchBarCaptureError) {
+        guard !suppressesCapture else { return }
         cancelMirrorReturn()
         hasCaptureDiagnostic = true
         showsFunctionKeyCapture = false

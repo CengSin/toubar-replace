@@ -16,6 +16,7 @@ enum ToubarReplaceSmokeTest {
 
         var failures: [String] = []
         failures.append(contentsOf: await DesktopThemeSmokeTest.failures())
+        failures.append(contentsOf: DesktopCapsuleSmokeTest.failures())
         let glassKey = TouchBarPreferences.glassThemeKey
         let savedGlass = UserDefaults.standard.object(forKey: glassKey)
         defer {
@@ -372,6 +373,7 @@ enum ToubarReplaceSmokeTest {
                 ) < 1
                 && abs(
                     strip.switcher.width + WorkspaceTouchBarLayout.switcherContentGap
+                        + WorkspaceTouchBarLayout.collapseButtonWidth + WorkspaceTouchBarLayout.collapseContentGap
                         + strip.tray.width
                         + WorkspaceTouchBarStyle.canvasInset * 2
                         - WorkspaceTouchBarLayout.designReferenceBarWidth
@@ -1112,25 +1114,6 @@ enum ToubarReplaceSmokeTest {
             } catch { failures.append("balance fixture failed: \(error)") }
         }
         expect(
-            WorkspaceFloatingSwitcherView.Gesture.shouldToggle(
-                duration: 0.1,
-                distance: 0
-            ),
-            "short stationary switcher presses must toggle Workspace",
-            failures: &failures
-        )
-        expect(
-            !WorkspaceFloatingSwitcherView.Gesture.shouldToggle(
-                duration: 0.5,
-                distance: 0
-            ) && !WorkspaceFloatingSwitcherView.Gesture.shouldToggle(
-                duration: 0.1,
-                distance: 12
-            ),
-            "long presses and drags must not toggle Workspace",
-            failures: &failures
-        )
-        expect(
             Array(QuotaProviderID.preferredDisplayOrder.prefix(3))
                 == [.grokBuild, .grokBots, .codex],
             "known quota providers must keep their fallback display order",
@@ -1145,55 +1128,6 @@ enum ToubarReplaceSmokeTest {
             TouchBarPreferences.settingsWindowAutosaveName
                 == "ToubarReplaceSettingsWindow",
             "settings window resize persistence name changed unexpectedly",
-            failures: &failures
-        )
-        expect(
-            TouchBarHoverOpacity.normal == 1
-                && TouchBarHoverOpacity.hovered == 0.3,
-            "desktop hover opacity defaults changed unexpectedly",
-            failures: &failures
-        )
-        expect(
-            TouchBarHoverOpacity.targetAlpha(isMouseInside: false)
-                == TouchBarHoverOpacity.normal
-                && TouchBarHoverOpacity.targetAlpha(isMouseInside: true)
-                == TouchBarHoverOpacity.hovered,
-            "desktop window must drop to 30% opacity while the cursor is inside",
-            failures: &failures
-        )
-        expect(
-            TouchBarHoverOpacity.isMouseInside(
-                windowFrame: CGRect(x: 100, y: 0, width: 1_000, height: 40),
-                mouseLocation: CGPoint(x: 120, y: 10)
-            )
-                && !TouchBarHoverOpacity.isMouseInside(
-                    windowFrame: CGRect(x: 100, y: 0, width: 1_000, height: 40),
-                    mouseLocation: CGPoint(x: 50, y: 10)
-                ),
-            "hover opacity must follow the desktop window frame, not physical Touch Bar",
-            failures: &failures
-        )
-        expect(
-            TouchBarHoverOpacity.targetAlpha(isMouseInside: false, overlapsOtherApp: true) == 0.3
-                && TouchBarHoverOpacity.targetAlpha(isMouseInside: true, overlapsOtherApp: true) == 0.3,
-            "overlapping another app must dim the desktop bar without mouse hover",
-            failures: &failures
-        )
-        let overlapBounds = TouchBarHoverOpacity.screenBounds(
-            windowFrame: CGRect(x: -200, y: -100, width: 300, height: 35),
-            primaryScreenHeight: 900
-        )
-        expect(
-            overlapBounds == CGRect(x: -200, y: 965, width: 300, height: 35)
-                && TouchBarHoverOpacity.overlaps(
-                    windowBounds: overlapBounds,
-                    otherBounds: CGRect(x: -100, y: 900, width: 800, height: 200)
-                )
-                && !TouchBarHoverOpacity.overlaps(
-                    windowBounds: overlapBounds,
-                    otherBounds: CGRect(x: 100, y: 965, width: 800, height: 200)
-                ),
-            "overlap detection must handle secondary displays and exclude touching edges",
             failures: &failures
         )
         if let firstImage = makeTestImage(width: 1),

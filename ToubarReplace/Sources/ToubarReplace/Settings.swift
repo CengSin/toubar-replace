@@ -225,17 +225,19 @@ final class TouchBarSettingsWindowController: NSWindowController,
         originXField.doubleValue = currentCustomTopLeft.x
         originYField.doubleValue = currentCustomTopLeft.y
 
-        let switcherModeLabel = NSTextField(labelWithString: "切换按钮")
+        let switcherModeLabel = NSTextField(labelWithString: "Workspace 入口")
         switcherDisplayModePopup.addItems(
             withTitles: WorkspaceSwitcherDisplayMode.allCases.map(\.title)
         )
         let currentMode: WorkspaceSwitcherDisplayMode =
             TouchBarHardwareCapability.usesSoftwareWorkspace
             ? .floating
-            : (currentWorkspaceSwitcherFloats ? .floating : .touchBar)
+            : .touchBar
         switcherDisplayModePopup.selectItem(
             at: WorkspaceSwitcherDisplayMode.allCases.firstIndex(of: currentMode) ?? 0
         )
+        switcherDisplayModePopup.isEnabled = false
+        switcherDisplayModePopup.toolTip = "根据此 Mac 的 Touch Bar 硬件自动选择操作入口"
 
         if TouchBarHardwareCapability.usesSoftwareWorkspace,
             let touchBarItem = switcherDisplayModePopup.item(
@@ -268,6 +270,8 @@ final class TouchBarSettingsWindowController: NSWindowController,
         heightField.alignment = .right
         widthField.integerValue = Int(currentPixelSize.width.rounded())
         heightField.integerValue = Int(currentPixelSize.height.rounded())
+        widthField.toolTip = "Touch Bar 界面的宽度（像素）"
+        heightField.toolTip = "Touch Bar 界面的高度（像素）"
 
         glassThemeCheckbox.state = TouchBarPreferences.glassThemeEnabled ? .on : .off
         glassThemeCheckbox.isEnabled = DesktopThemePolicy.supportsGlass

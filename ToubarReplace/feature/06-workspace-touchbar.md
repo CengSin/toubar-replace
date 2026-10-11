@@ -4,32 +4,35 @@
 - 用户称呼：Workspace、工作区、启动台、额度条、TouchBar 工作台、桌面软件工作区
 - 入口：
   - 物理 Touch Bar 上轻触左侧网格切换键
-  - 或点击独立切换浮窗（桌面小方块）
-  - 或设置中「启动后进入」配置为 Workspace，应用启动后自动呈现
+  - 桌面正常展示；手动隐藏后轻触物理 Touch Bar 任意位置唤醒，镜像场景中轻触物理网格键进入 Workspace
+  - 状态栏菜单激活当前场景；软件设备从状态栏菜单切换 Workspace
+  - 或设置中「启动后进入」配置为 Workspace，应用启动后直接展示该场景
 - 关键选择器：
   - 物理模态配置：Placement `1`, PresentationModeGlobal `"app"`（全宽独占模式，不保留 Control Strip）
-  - 物理返回键 Item Identifier：`NSTouchBarItem.Identifier.workspaceSwitcher`（`"ToubarReplace.Workspace.Switcher"`，注册为 `escapeKeyReplacementItemIdentifier`）
-  - 物理托盘 Item Identifier：`NSTouchBarItem.Identifier.workspaceTray`（`"ToubarReplace.Workspace.Tray"`，作为唯一的 `defaultItemIdentifiers`）
+  - 物理返回键 Item Identifier：`NSTouchBarItem.Identifier("com.toubarreplace.workspace.back")`（`"com.toubarreplace.workspace.back"`，注册为 `escapeKeyReplacementItemIdentifier`）
+  - 物理托盘 Item Identifier：`NSTouchBarItem.Identifier("com.toubarreplace.workspace.content")`（`"com.toubarreplace.workspace.content"`，作为唯一的 `defaultItemIdentifiers`）
   - 桌面软件工作台容器：`WorkspaceBarView`（嵌入在桌面窗口 `TouchBarRootView` 中）
   - 返回键控件：`WorkspaceReturnItemView`（硬件栏）/ `switcherButton`（软件栏）
     - 图标：`chevron.backward`
     - 无障碍标签：`accessibilityLabel: "返回 Touch Bar 镜像"`
     - Tooltip：`"点击返回 Touch Bar 镜像"`
+  - 界面隐藏键：`WorkspaceTouchBarContentView.collapseButton`，Accessibility Identifier：`ToubarReplace.TouchBar.Collapse`，图标：`chevron.down`
   - 托盘容器：`trayView`（全黑主题使用 `WorkspaceTouchBarStyle.trayBackground`；桌面毛玻璃主题使用透明托盘叠放于原生玻璃上）
   - 桌面外观策略：`DesktopThemePolicy`、`WorkspaceBarView.apply(theme:)`（原生毛玻璃工作台文字与按钮适配明暗外观）
   - 物理横滑状态：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`
   - Fn 状态与内容切换：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.isFunctionKeyPressed`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarSurfaceView.onGlassFrameDisplayed`
   - 分区隔离线：`zoneDivider`（1pt 垂直分割线，颜色 `WorkspaceTouchBarStyle.dividerColor`）
 - 子功能：
-  - 桌面毛玻璃工作台：macOS 26 下在设置中手动启用，`WorkspaceBarView` 在连续圆角玻璃底板上绘制同源额度和 App 控件，保留彩色额度与琥珀推荐框。有物理栏时，手指在 Touch Bar 上操作，桌面原生用量区同步物理横滑位置与溢出布局，并保持鼠标穿透；软件回退工作台接收桌面操作。关闭毛玻璃后，有物理栏设备显示原始硬件镜像
-  - Fn 临时显示：有物理栏且开启毛玻璃时，按住 Fn 后保持原生工作台可见，新的系统功能键捕获完成玻璃合成后一次切换显示，旧 Workspace 帧按画面签名过滤；松开后立即恢复原生工作台。按住期间开启毛玻璃时，已捕获的功能键画面完成合成后接入；返回镜像时正常显示功能键画面。软件工作台继续显示可点击的额度和 App 控件
+  - 桌面毛玻璃工作台：macOS 26 下在设置中手动启用，`WorkspaceBarView` 在连续圆角玻璃底板上绘制同源额度和 App 控件，保留彩色额度与琥珀推荐框。有物理栏时，手指在 Touch Bar 上操作，桌面原生用量区同步物理横滑位置与溢出布局；软件回退工作台接收桌面操作。关闭毛玻璃后，有物理栏设备显示原始硬件镜像
+  - Fn 临时显示：有物理栏且开启毛玻璃时，按住 Fn 后保持原生工作台可见，新的系统功能键捕获完成玻璃合成后一次切换显示，旧 Workspace 帧按画面签名过滤；松开后立即恢复原生工作台。按住期间开启毛玻璃时，已捕获的功能键画面完成合成后接入；返回镜像时正常显示功能键画面。软件工作台展开后显示可点击的额度和 App 控件
   - 独立 Escape 返回机制：硬件栏使用专用的 Escape 槽位替换键，软件栏嵌入左侧回退键，轻触即可平滑退回镜像模式
+  - 独立界面隐藏键：托盘左侧预留 36pt 隐藏键与 6pt 间距；隐藏整个窗口时保留 Workspace 场景、额度与滚动状态，物理栏暂时呈现整条唤醒层；再次激活恢复 Workspace
   - 全宽托盘分流：托盘按照用户设定的 `quotaShare` 比例（默认 70%）分为左侧额度用量区与右侧常用应用区
   - 双硬件架构兼容：
     - 有物理栏时：托盘在真实 Touch Bar 硬件上呈现，桌面全黑主题镜像捕获画面，毛玻璃主题通过原生工作台同步物理触控状态
-    - 无物理栏时：桌面窗口直接呈现 `WorkspaceBarView` 软工作台，支持直接鼠标点击与悬停交互（解除鼠标穿透）
+    - 无物理栏时：桌面窗口直接呈现 `WorkspaceBarView` 软工作台，展开后支持直接鼠标点击应用和设置控件
   - 边界安全保护：托盘右侧内置安全边距 `trayTrailingSafeInset = 12pt`，整体宽度限制在 `1010pt`，防止最右侧设置齿轮被 MacBook 硬件外框截断
-- 前置条件：应用进入 Workspace 模式
+- 前置条件：应用进入 Workspace 模式；手动隐藏后通过 Touch Bar 唤醒或状态栏菜单激活
 - 常见故障现象：
   - 物理返回键无法点击：若将返回键错误放到主托盘中，会被系统关闭盒死区拦截； ToubarReplace 已采用 `escapeKeyReplacementItemIdentifier` 彻底隔离解决
   - 物理栏全黑只剩左侧箭头：如果 Touch Bar 注册了多个 `defaultItemIdentifiers` 会导致系统丢弃主要托盘；本项目严格保证托盘为唯一默认项

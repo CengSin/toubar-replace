@@ -52,6 +52,8 @@ enum WorkspaceTouchBarLayout {
 
     static let switcherWidth: CGFloat = 44
     static let switcherContentGap: CGFloat = 10
+    static let collapseButtonWidth: CGFloat = 36
+    static let collapseContentGap: CGFloat = 6
 
 
     static func preferredTrayWidth(
@@ -123,6 +125,7 @@ enum WorkspaceTouchBarLayout {
         in bounds: NSRect
     ) -> (
         switcher: NSRect,
+        collapse: NSRect,
         tray: NSRect,
         quota: NSRect,
         apps: NSRect
@@ -139,7 +142,9 @@ enum WorkspaceTouchBarLayout {
             width: switcherWidth,
             height: height
         )
-        let trayX = switcher.maxX + switcherContentGap
+        let collapse = NSRect(x: switcher.maxX + switcherContentGap, y: y,
+                              width: collapseButtonWidth, height: height)
+        let trayX = collapse.maxX + collapseContentGap
         let trayWidth = max(
             bounds.maxX - inset - trayX,
             0
@@ -151,7 +156,13 @@ enum WorkspaceTouchBarLayout {
             height: height
         )
         let zones = trayZoneFrames(tray: tray)
-        return (switcher, tray, zones.quota, zones.apps)
+        return (switcher, collapse, tray, zones.quota, zones.apps)
+    }
+
+    static func collapseFrame(in bounds: NSRect) -> NSRect {
+        let height = min(WorkspaceTouchBarStyle.controlHeight, max(bounds.height, 1))
+        return NSRect(x: bounds.minX + WorkspaceTouchBarStyle.canvasInset, y: bounds.midY - height / 2,
+                      width: collapseButtonWidth, height: height)
     }
 
 
@@ -162,9 +173,9 @@ enum WorkspaceTouchBarLayout {
         )
         let inset = WorkspaceTouchBarStyle.canvasInset
         return NSRect(
-            x: bounds.minX + inset,
+            x: bounds.minX + inset + collapseButtonWidth + collapseContentGap,
             y: bounds.midY - height / 2,
-            width: max(bounds.width - inset * 2, 0),
+            width: max(bounds.width - inset * 2 - collapseButtonWidth - collapseContentGap, 0),
             height: height
         )
     }
@@ -648,6 +659,8 @@ final class WorkspaceReturnItemView: NSView {
 
 @MainActor
 final class WorkspaceTouchBarContentView: NSView {
+    let collapseButton = NSButton()
+    var onCollapse: (() -> Void)?
     private let trayView = NSView()
     private let quotaView: NSView
     private let customView: NSView
@@ -659,6 +672,15 @@ final class WorkspaceTouchBarContentView: NSView {
         self.quotaView = quotaView
         self.customView = customView
         super.init(frame: .zero)
+        collapseButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "隐藏 ToubarReplace")
+        collapseButton.contentTintColor = .white
+        collapseButton.isBordered = false
+        collapseButton.imagePosition = .imageOnly
+        collapseButton.target = self
+        collapseButton.action = #selector(collapse)
+        collapseButton.setAccessibilityLabel("隐藏 ToubarReplace")
+        collapseButton.setAccessibilityIdentifier("ToubarReplace.TouchBar.Collapse")
+        addSubview(collapseButton)
 
 
         setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -713,6 +735,7 @@ final class WorkspaceTouchBarContentView: NSView {
         trayView.layer?.contentsScale = scale
 
         let tray = WorkspaceTouchBarLayout.trayFrame(in: bounds)
+        collapseButton.frame = WorkspaceTouchBarLayout.collapseFrame(in: bounds)
         trayView.frame = tray
         let zones = WorkspaceTouchBarLayout.trayZoneFrames(tray: tray)
 
@@ -751,6 +774,8 @@ final class WorkspaceTouchBarContentView: NSView {
         quotaView.needsLayout = true
         quotaView.layoutSubtreeIfNeeded()
     }
+
+    @objc private func collapse() { onCollapse?() }
 }
 
 
@@ -1526,6 +1551,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
     var onPresentationInterrupted: (() -> Void)?
     var onToggleWorkspace: (() -> Void)?
+    var onCollapse: (() -> Void)?
 
     var onQuotaScrollStateChanged: ((QuotaScrollState) -> Void)? {
         didSet { quotaPlate.onScrollStateChanged = onQuotaScrollStateChanged }
@@ -1546,6 +1572,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         contentView.onWindowAttachmentChanged = { [weak self] attached in
             self?.handleWindowAttachmentChanged(attached)
         }
+        contentView.onCollapse = { [weak self] in self?.onCollapse?() }
         returnView.onActivate = { [weak self] in
             self?.onToggleWorkspace?()
         }

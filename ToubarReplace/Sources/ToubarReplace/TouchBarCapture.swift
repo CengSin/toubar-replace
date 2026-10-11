@@ -207,6 +207,15 @@ final class TouchBarCapture: @unchecked Sendable {
         }
     }
 
+    func pause() {
+        workerQueue.async { [weak self] in
+            guard let self else { return }
+            self.stopped = true
+            self.generation &+= 1
+            self.stopStream(restoreTouchBarStatus: false)
+        }
+    }
+
     func restart() {
         workerQueue.async { [weak self] in
             guard let self else { return }

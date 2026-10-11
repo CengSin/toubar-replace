@@ -10,7 +10,7 @@ enum WorkspaceSwitcherDisplayMode: String, CaseIterable {
         case .touchBar:
             return "物理 Touch Bar"
         case .floating:
-            return "独立浮窗"
+            return "桌面胶囊"
         }
     }
 }

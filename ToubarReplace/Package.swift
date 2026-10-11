@@ -15,13 +15,18 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "MirrorFrameProcessing",
+            path: "Sources/MirrorFrameProcessing",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "TouchBarPrivateAPI",
             path: "Sources/TouchBarPrivateAPI",
             publicHeadersPath: "include"
         ),
         .executableTarget(
             name: "ToubarReplace",
-            dependencies: ["TouchBarPrivateAPI"],
+            dependencies: ["TouchBarPrivateAPI", "MirrorFrameProcessing"],
             resources: [
                 .process("Resources")
             ]

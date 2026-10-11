@@ -267,16 +267,6 @@ enum DesktopThemeSmokeTest {
         func check(_ condition: Bool, _ message: String) {
             if !condition { failures.append(message) }
         }
-        for theme in [DesktopTheme.black, .glass] {
-            for hover in [true, false] {
-                for overlap in [true, false] {
-                    check(DesktopThemePolicy.targetAlpha(theme: theme, isMouseInside: hover,
-                                                         overlapsOtherApp: overlap)
-                          == (theme == .glass ? 1 : (hover || overlap ? 0.3 : 1)),
-                          "opacity must follow the effective theme for every hover/overlap combination")
-                }
-            }
-        }
         let chrome = WorkspaceChromeButton()
         let blackBackground = chrome.layer?.backgroundColor
         chrome.desktopTheme = .glass
@@ -408,14 +398,14 @@ enum DesktopThemeSmokeTest {
             check(output[3] == 0 && output[0..<3].allSatisfy { $0 == 0 },
                   "border-connected background must become premultiplied transparent")
             let center = (3 * 9 + 4) * 4
-            check(output[center + 3] == 255 && output[center] == 0,
-                  "black foreground details enclosed by a visible shape must remain opaque")
+            check(output[center + 3] == 0 && output[center] == 0,
+                  "monochrome symbol holes must reveal glass rather than retain an enclosed black patch")
             let button = (3 * 9 + 1) * 4
-            check(Array(output[button..<(button + 4)]) == Array(original[button..<(button + 4)]),
-                  "a dark button adjacent to the background must retain its original pixels")
+            check(output[button + 3] == 12 && output[button] <= output[button + 3],
+                  "faint neutral coverage must remain a translucent antialiased edge")
             let ring = (3 * 9 + 2) * 4
-            check(Array(output[ring..<(ring + 4)]) == Array(original[ring..<(ring + 4)]),
-                  "visible foreground pixels must not be altered by background composition")
+            check(output[ring + 3] == 80 && output[ring] < output[ring + 3],
+                  "monochrome foreground must unmatte into continuous coverage and adaptive tint")
             check(rgba(image) == original, "glass renderer must not mutate the raw frame")
         }
         let stale = MirrorGlassFrameToken(generation: 1, sequence: 10)
@@ -449,6 +439,67 @@ enum DesktopThemeSmokeTest {
             check(rgba(chromeImage) == rawChrome, "system chrome composition must preserve the original capture")
         } else { check(false, "system chrome fixture must load") }
 
+        if let keys = functionKeyFixture(), let rendered = MirrorGlassFrameRenderer().render(keys) {
+            let bytes = rgba(rendered)
+            check(bytes[(15 * keys.width + 8) * 4 + 3] == 0,
+                  "rounded gray key plates surrounded by black margins must reveal the same glass surface")
+        } else { check(false, "rounded key-plate fixture must render") }
+
+        let narrowWidth = 160, narrowHeight = 60
+        var narrowBytes = [UInt8](repeating: 0, count: narrowWidth * narrowHeight * 4)
+        for y in 0..<narrowHeight {
+            for x in 0..<narrowWidth {
+                let offset = (y * narrowWidth + x) * 4
+                let plate = (60...91).contains(x) && (1...58).contains(y)
+                let glyph = (70...82).contains(x) && (10...50).contains(y)
+                let value: UInt8 = glyph ? 255 : plate ? 54 : 0
+                narrowBytes[offset] = value
+                narrowBytes[offset + 1] = value
+                narrowBytes[offset + 2] = value
+                narrowBytes[offset + 3] = 255
+            }
+        }
+        if let provider = CGDataProvider(data: Data(narrowBytes) as CFData),
+           let space = CGColorSpace(name: CGColorSpace.sRGB),
+           let source = CGImage(width: narrowWidth, height: narrowHeight, bitsPerComponent: 8,
+                bitsPerPixel: 32, bytesPerRow: narrowWidth * 4, space: space,
+                bitmapInfo: CGBitmapInfo(rawValue: MirrorGlassFrameRenderer.bitmapInfo),
+                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent),
+           let rendered = MirrorGlassFrameRenderer().render(source) {
+            check(rgba(rendered)[(30 * narrowWidth + 66) * 4 + 3] == 0,
+                  "narrow controls must infer their matte vertically when a glyph splits every horizontal background run")
+        } else { check(false, "narrow control fixture must render") }
+
+        for base in [UInt8(0), 54] {
+            let width = 160, height = 30
+            var bytes = [UInt8](repeating: base, count: width * height * 4)
+            for offset in stride(from: 3, to: bytes.count, by: 4) { bytes[offset] = 255 }
+            let coverages = [0, 4, 8, 16, 32, 64, 128, 192, 255]
+            for (index, coverage) in coverages.enumerated() {
+                let offset = (15 * width + 50 + index) * 4
+                let value = UInt8(Int(base) + (coverage * (255 - Int(base)) + 127) / 255)
+                for channel in 0..<3 { bytes[offset + channel] = value }
+            }
+            if let provider = CGDataProvider(data: Data(bytes) as CFData),
+               let space = CGColorSpace(name: CGColorSpace.sRGB),
+               let source = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                    bytesPerRow: width * 4, space: space,
+                    bitmapInfo: CGBitmapInfo(rawValue: MirrorGlassFrameRenderer.bitmapInfo),
+                    provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) {
+                for appearance in [MirrorGlassAppearance.light, .dark] {
+                    if let rendered = MirrorGlassFrameRenderer().render(source, appearance: appearance) {
+                        let result = rgba(rendered)
+                        for (index, coverage) in coverages.enumerated() {
+                            let offset = (15 * width + 50 + index) * 4
+                            check(abs(Int(result[offset + 3]) - coverage) <= 1
+                                  && result[offset] <= result[offset + 3],
+                                  "low and high glyph coverage must stay smooth over both black and gray capture mattes")
+                        }
+                    } else { check(false, "coverage ramp must render") }
+                }
+            } else { check(false, "coverage ramp fixture must load") }
+        }
+
         var deliveries: [UInt64] = []
         let pipeline = MirrorGlassFramePipeline { _, token in deliveries.append(token.sequence) }
         submitWhileDeliveryIsBlocked(pipeline, image: image)
@@ -460,6 +511,10 @@ enum DesktopThemeSmokeTest {
               "a busy main actor must receive the latest processed frame without an unbounded callback backlog")
 
         let surface = TouchBarSurfaceView(frame: NSRect(x: 0, y: 0, width: 100, height: 30))
+        let imageLayer = surface.subviews.first?.layer
+        check(imageLayer?.minificationFilter == .trilinear && imageLayer?.magnificationFilter == .linear
+              && (imageLayer?.contentsScale ?? 0) >= 1,
+              "mirror scaling must use display backing resolution and filtered sampling")
         surface.display(image: image)
         surface.apply(theme: .glass)
         for _ in 0..<100 {
@@ -618,12 +673,6 @@ enum DesktopThemeSmokeTest {
                   && !switching.isWaitingForMirrorCapture && switchingCover?.isHidden == true,
                   "rapid reversal must cancel old settle work without reviving mirror icons")
         }
-        let hoverController = TouchBarHoverOpacityController(window: nil)
-        hoverController.setTheme(.glass)
-        hoverController.start()
-        check(!hoverController.hasActiveObservers,
-              "glass theme must not install fading mouse observers or overlap timer")
-        hoverController.stop()
         failures.append(contentsOf: await functionKeyFailures())
         return failures
     }

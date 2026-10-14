@@ -8,6 +8,39 @@ enum DesktopCapsuleSmokeTest {
             if !condition { failures.append(message) }
         }
 
+        let desktop = DesktopSpaceSnapshot(displayID: 1, spaceID: 10, spaceType: 0)
+        let fullScreen = DesktopSpaceSnapshot(displayID: 1, spaceID: 20, spaceType: 4)
+        let anotherDesktop = DesktopSpaceSnapshot(displayID: 1, spaceID: 30, spaceType: 0)
+        let anotherFullScreen = DesktopSpaceSnapshot(displayID: 1, spaceID: 40, spaceType: 4)
+        let secondDisplayDesktop = DesktopSpaceSnapshot(displayID: 2, spaceID: 10, spaceType: 0)
+        var visibility = DesktopSpaceVisibilityPolicy()
+        check(visibility.expansion(for: desktop) == true,
+              "launching on a normal desktop must show the interface")
+        check(visibility.expansion(for: desktop) == nil,
+              "repeated desktop notifications must preserve manual hiding")
+        check(visibility.expansion(for: fullScreen) == false,
+              "entering a fullscreen or tiled Space must hide the interface")
+        check(visibility.expansion(for: fullScreen) == nil,
+              "manual wake inside the same fullscreen Space must remain effective")
+        check(visibility.expansion(for: anotherFullScreen) == false,
+              "switching to a different fullscreen Space must hide a manually woken interface")
+        check(visibility.expansion(for: desktop) == true,
+              "returning to the desktop must reveal the interface even after manual hiding")
+        check(visibility.expansion(for: anotherDesktop) == true,
+              "arriving on another normal desktop must reveal the interface")
+        check(visibility.expansion(for: nil) == nil && visibility.lastSnapshot == anotherDesktop,
+              "unavailable Space data must preserve both visibility and the last known Space")
+        check(visibility.expansion(for: anotherDesktop) == nil,
+              "recovering data for the same Space must preserve manual visibility")
+        check(visibility.expansion(for: secondDisplayDesktop) == true,
+              "moving the interface to another display must follow that display's current Space")
+        check(DesktopSpaceSnapshot(displayID: 1, spaceID: 0, spaceType: 0) == nil
+              && DesktopSpaceSnapshot(displayID: 1, spaceID: 50, spaceType: 2) == nil,
+              "invalid and transitional Space types must not be mistaken for a desktop")
+        var fullScreenLaunch = DesktopSpaceVisibilityPolicy()
+        check(fullScreenLaunch.expansion(for: fullScreen) == false,
+              "launching while already in fullscreen must hide the interface")
+
         let pixels = CGSize(width: 2_300, height: 70)
         let retinaSize = DesktopCapsuleLayout.expandedSize(pixelSize: pixels, backingScaleFactor: 2)
         check(retinaSize == CGSize(width: 1_150, height: 35),

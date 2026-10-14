@@ -30,6 +30,11 @@ CGError TBRStartDisplayStream(CGDisplayStreamRef _Nonnull stream);
 CGError TBRStopDisplayStream(CGDisplayStreamRef _Nonnull stream);
 int32_t TBRGetTouchBarStatus(void);
 void TBRSetTouchBarStatus(int32_t status);
+bool TBRGetCurrentSpaceForDisplay(
+    uint32_t displayID,
+    uint64_t * _Nonnull spaceID,
+    int32_t * _Nonnull spaceType
+);
 
 #ifdef __OBJC__
 bool TBRCanPresentSystemModalTouchBar(void);

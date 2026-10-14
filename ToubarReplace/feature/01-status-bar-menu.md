@@ -15,6 +15,7 @@
   - 菜单项 6：`NSMenuItem(title: "退出 ToubarReplace", action: #selector(quit))`
 - 子功能：
   - 显示/隐藏界面：通过 `DesktopCapsuleController` 同步桌面窗口与物理 Touch Bar；隐藏时退出窗口显示，唤醒时按配置尺寸弹性展开
+  - 全屏显隐联动：进入全屏 Space 自动隐藏，返回普通桌面自动显示；菜单操作在同一 Space 内保持有效，全屏内可临时显示
   - 场景切换：在 Touch Bar 镜像与 Workspace 间切换，软件设备可从菜单进入工作台
   - 打开设置窗口：将应用临时切换为前台激活模式（`NSApp.setActivationPolicy(.regular)`）并调出设置窗口
   - 显示当前版本号：展示已安装应用的语义化版本号

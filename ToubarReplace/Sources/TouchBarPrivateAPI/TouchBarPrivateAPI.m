@@ -20,9 +20,50 @@ typedef CGError (*TBRStreamControlFunction)(CGDisplayStreamRef stream);
 typedef int32_t (*TBRGetStatusFunction)(void);
 typedef void (*TBRSetStatusFunction)(int32_t status);
 typedef void (*TBRSetSystemModalCloseBoxFunction)(bool showsCloseBox);
+typedef int32_t (*TBRMainConnectionFunction)(void);
+typedef CFArrayRef (*TBRCopyManagedDisplaySpacesFunction)(int32_t connection);
 
 static void *TBRLoadFramework(const char *path) {
     return dlopen(path, RTLD_LAZY | RTLD_LOCAL);
+}
+
+bool TBRGetCurrentSpaceForDisplay(uint32_t displayID, uint64_t *spaceID, int32_t *spaceType) {
+    static TBRMainConnectionFunction mainConnection;
+    static TBRCopyManagedDisplaySpacesFunction copySpaces;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = TBRLoadFramework(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+        );
+        if (handle != NULL) {
+            mainConnection = (TBRMainConnectionFunction)dlsym(handle, "SLSMainConnectionID");
+            copySpaces = (TBRCopyManagedDisplaySpacesFunction)dlsym(handle, "SLSCopyManagedDisplaySpaces");
+        }
+    });
+    if (mainConnection == NULL || copySpaces == NULL) { return false; }
+    CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(displayID);
+    if (uuid == NULL) { return false; }
+    NSString *identifier = CFBridgingRelease(CFUUIDCreateString(NULL, uuid));
+    CFRelease(uuid);
+    NSArray *displays = CFBridgingRelease(copySpaces(mainConnection()));
+    for (id entry in displays) {
+        if (![entry isKindOfClass:NSDictionary.class]) { continue; }
+        NSString *displayIdentifier = entry[@"Display Identifier"];
+        bool matches = [identifier isEqual:displayIdentifier]
+            || (![NSScreen screensHaveSeparateSpaces] && [@"Main" isEqual:displayIdentifier]);
+        if (!matches) { continue; }
+        id current = entry[@"Current Space"];
+        if (![current isKindOfClass:NSDictionary.class]) { return false; }
+        NSNumber *currentID = current[@"ManagedSpaceID"] ?: current[@"id64"];
+        NSNumber *currentType = current[@"type"];
+        if (![currentID isKindOfClass:NSNumber.class]
+            || ![currentType isKindOfClass:NSNumber.class]
+            || currentID.unsignedLongLongValue == 0) { return false; }
+        *spaceID = currentID.unsignedLongLongValue;
+        *spaceType = currentType.intValue;
+        return true;
+    }
+    return false;
 }
 
 static TBRCreateStreamFunction TBRResolveCreateTouchBarDisplayStream(void) {

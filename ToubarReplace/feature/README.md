@@ -10,8 +10,8 @@
 | :--- | :--- | :--- | :--- |
 | 01 | [`01-status-bar-menu.md`](01-status-bar-menu.md) | 状态栏菜单 (Status Bar Menu) | 状态栏图标、显隐控制、设置与退出入口 |
 | 02 | [`02-settings-window.md`](02-settings-window.md) | 设置面板 (Settings Window) | 展示位置、自定义坐标、像素分辨率、毛玻璃开关、比例滑块、订阅勾选、App 管理 |
-| 03 | [`03-mirror-window.md`](03-mirror-window.md) | 桌面镜像浮窗 (Touch Bar Mirror Window) | 流式镜像、胶囊玻璃背景、主题转场盖板、手动显隐 |
-| 04 | [`04-workspace-floating-switcher.md`](04-workspace-floating-switcher.md) | 桌面展示与 Touch Bar 唤醒 (Desktop Presentation) | 启动展示、手动显隐、整条触控唤醒、固定位置 spring 展开、配置宽高、内容淡入 |
+| 03 | [`03-mirror-window.md`](03-mirror-window.md) | 桌面镜像浮窗 (Touch Bar Mirror Window) | 流式镜像、胶囊玻璃背景、主题转场盖板、手动显隐、全屏自动显隐 |
+| 04 | [`04-workspace-floating-switcher.md`](04-workspace-floating-switcher.md) | 桌面展示与 Touch Bar 唤醒 (Desktop Presentation) | 启动展示、全屏自动显隐、手动显隐、整条触控唤醒、固定位置 spring 展开、配置宽高、内容淡入 |
 | 05 | [`05-physical-touchbar-switcher.md`](05-physical-touchbar-switcher.md) | 物理 Touch Bar 切换键 (Physical Switcher Item) | 物理栏 Placement 0 网格与隐藏按钮、保留 Control Strip、关闭盒抑制 |
 | 06 | [`06-workspace-touchbar.md`](06-workspace-touchbar.md) | Workspace 触控工作台 (Workspace Touch Bar) | 全宽 Placement 1 托盘、Escape 槽独立返回、桌面软工作台模式 |
 | 07 | [`07-quota-plate.md`](07-quota-plate.md) | 额度用量展示看板 (Quota Plate View) | 5h/周/重置三竖柱、按量付费卡片、智能浪费压力推荐、无条横滑 |

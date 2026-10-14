@@ -4,6 +4,7 @@
 - 用户称呼：桌面 Touch Bar、镜像浮窗、镜像窗口、桌面条
 - 入口：
   - 应用启动后按配置尺寸展示镜像
+  - 从全屏应用返回普通桌面后自动展示当前场景
   - 手动隐藏后轻触 Touch Bar 任意位置，或使用状态栏菜单激活界面
 - 关键选择器：
   - 窗口类型：`NSPanel`（`styleMask: [.borderless, .nonactivatingPanel]`, `level: .floating`）
@@ -19,11 +20,13 @@
     - 错误状态："\(error.localizedDescription)\n\n恢复命令（终端）：\n\(ToubarReplaceAppInfo.recoveryCommands)"
   - 切换过渡遮罩：`MirrorSceneTransition`（全黑转场 `settleDuration: 221ms`、`fadeDuration: 0.12s`；玻璃切换直接更新场景）
   - 桌面收放容器：`DesktopCapsuleView`、`DesktopCapsuleController`（左端固定，唤醒时弹性展开至配置宽高，内容占满界面）
+  - 全屏显隐检测：`DesktopSpaceVisibilityMonitor`、`DesktopSpaceVisibilityPolicy`、`DesktopSpaceSnapshot`、`TBRGetCurrentSpaceForDisplay`（监听 `NSWorkspace.activeSpaceDidChangeNotification`，读取界面所在屏幕的当前 Space）
 - 子功能：
   - 唤醒层与捕获调度：隐藏与展开动画期间保留原场景画面，抑制唤醒层捕获；恢复正常物理控件后接入显示流
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
   - 桌面默认展示：启动时按配置尺寸展示当前场景；硬件镜像采用鼠标穿透，位置由设置控制
-  - 手动显隐与激活：状态栏菜单或物理隐藏键通过 `orderOut` 隐藏整个窗口；Touch Bar 整条轻触唤醒，抬手和动画完成后恢复原场景操作；进入与退出全屏、切换 Space 时保持当前显隐状态
+  - 手动显隐与激活：状态栏菜单或物理隐藏键通过 `orderOut` 隐藏整个窗口；Touch Bar 整条轻触唤醒，抬手和动画完成后恢复原场景操作；同一 Space 内保持手动显隐状态，全屏内可临时唤醒
+  - 全屏自动显隐：进入全屏应用或分屏全屏 Space 自动隐藏，从全屏返回普通桌面、切换到其他普通桌面后自动显示当前场景；启动时按当前 Space 显隐，多屏跟随界面所在屏幕。Space 转场后分次复查，重复通知保留手动操作；唤醒与屏幕配置变化后重新检查
   - 物理场景控制：网格键进入 Workspace，下箭头隐藏界面，隐藏后物理栏恢复整条唤醒入口
   - 统一桌面玻璃：设置开启后使用同一原生圆角玻璃底板，镜像的黑色空白与圆角灰色按钮背景融入玻璃；单色符号和内部镂空恢复连续透明度，图标轮廓适配明暗外观；彩色图标边缘去除背景混色，内部深色细节保留；关闭时立即恢复最近的原始帧
   - 流畅画面更新：原生处理复用背景、图标保护和边缘缓冲区，后台队列与主线程分别合并待处理帧；图层即时换帧，缩放采样跟随当前屏幕的 backing scale

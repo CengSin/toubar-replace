@@ -310,6 +310,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private let capture: TouchBarCapture
     private let capsuleView: DesktopCapsuleView
     private let capsuleController: DesktopCapsuleController
+    private var spaceVisibilityMonitor: DesktopSpaceVisibilityMonitor?
     private let functionKeyMonitor: TouchBarFunctionKeyMonitor
     private let quotaStore = QuotaSnapshotStore()
     private let workspaceTouchBarController = WorkspaceTouchBarController()
@@ -414,6 +415,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         )
 
         super.init(window: panel)
+        spaceVisibilityMonitor = DesktopSpaceVisibilityMonitor(window: panel) { [weak self] expanded in
+            self?.capsuleController.setExpanded(expanded)
+        }
         hasRestoredFrame = restoredFrame
         panel.delegate = self
         capsuleController.onExpansionChanged = { [weak self] _ in self?.synchronizePhysicalTouchBar() }
@@ -478,10 +482,12 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
         configureDesktopCapsule()
         synchronizePhysicalTouchBar()
+        spaceVisibilityMonitor?.start()
     }
 
     func stop() {
         isRunning = false
+        spaceVisibilityMonitor?.stop()
         cancelWorkspaceAsyncWork(invalidateSession: true)
         workspaceTouchBarController.dismiss()
         switcherTouchBarController.dismiss()
@@ -501,6 +507,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
            window.setFrameUsingName(TouchBarPreferences.mirrorWindowAutosaveName) {
             hasRestoredFrame = true
             capsuleController.setExpanded(capsuleController.isExpanded, animated: false)
+            spaceVisibilityMonitor?.refresh()
             return
         }
         hasRestoredFrame = false
@@ -594,6 +601,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidChangeScreen(_ notification: Notification) {
         configureDesktopCapsule()
+        spaceVisibilityMonitor?.refresh()
     }
 
     func positionWindow() {
@@ -636,6 +644,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             origin = NSPoint(x: topLeft.x, y: topLeft.y - frame.height)
         }
         window.setFrameOrigin(origin)
+        spaceVisibilityMonitor?.refresh()
     }
 
     private func defaultCustomTopLeftFallback() -> CGPoint {

@@ -494,7 +494,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         wakeTouchBarController.dismiss()
         capsuleController.stop()
         functionKeyMonitor.stop()
-        capture.stop()
+        capture.shutdown()
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(center.removeObserver)
         workspaceObservers.removeAll()

@@ -17,6 +17,7 @@ enum ToubarReplaceSmokeTest {
         var failures: [String] = []
         failures.append(contentsOf: await DesktopThemeSmokeTest.failures())
         failures.append(contentsOf: DesktopCapsuleSmokeTest.failures())
+        failures.append(contentsOf: await TouchBarCaptureSmokeTest.failures())
         let glassKey = TouchBarPreferences.glassThemeKey
         let savedGlass = UserDefaults.standard.object(forKey: glassKey)
         defer {

@@ -21,6 +21,7 @@ enum ToubarReplaceAppInfo {
 enum TouchBarCaptureError: LocalizedError, Equatable {
     case streamUnavailable
     case streamStartFailed(Int32)
+    case streamStopFailed(Int32)
     case invalidSurface
     case controlStripEmpty
     case blackFrame
@@ -33,6 +34,8 @@ enum TouchBarCaptureError: LocalizedError, Equatable {
             return "无法创建 Touch Bar 显示流；当前 macOS 可能已不支持此接口"
         case let .streamStartFailed(code):
             return "Touch Bar 显示流启动失败（错误码 \(code)）"
+        case let .streamStopFailed(code):
+            return "Touch Bar 显示流停止失败（错误码 \(code)），正在重试…"
         case .invalidSurface:
             return "TouchBarServer 返回了无效画面"
         case .controlStripEmpty:
@@ -148,6 +151,20 @@ final class TouchBarCapture: @unchecked Sendable {
     typealias NoticeHandler = @Sendable (TouchBarCaptureNotice) -> Void
     typealias ErrorHandler = @Sendable (TouchBarCaptureError) -> Void
 
+    private struct StreamToken: Equatable, Sendable {
+        let generation: UInt64
+        let identifier: UInt64
+        let runIdentifier: UInt64
+    }
+
+    private struct ActiveStream: Sendable {
+        var token: StreamToken
+        let value: any TouchBarDisplayStream
+        var isStopping = false
+        var isSuspended = false
+        var isShuttingDown = false
+    }
+
     private static let minimumBlankFrameCount = 2
     private static let minimumBlankFrameDuration: UInt64 = 500_000_000
     private static let streamStartupTimeout: DispatchTimeInterval = .seconds(5)
@@ -156,19 +173,19 @@ final class TouchBarCapture: @unchecked Sendable {
         category: "TouchBarDisplayStream"
     )
 
-    private let workerQueue = DispatchQueue(
-        label: "com.toubarreplace.display-stream",
-        qos: .userInteractive
-    )
-    private let imageContext = CIContext(options: [
-        .cacheIntermediates: false,
-    ])
+    private let workerQueue: DispatchQueue
+    private let dependencies: TouchBarCaptureDependencies
+    private var imageContext: CIContext?
     private let onFrame: FrameHandler
     private let onNotice: NoticeHandler
     private let onError: ErrorHandler
-    private var stream: CGDisplayStream?
+    private var stream: ActiveStream?
     private var stopped = true
     private var generation: UInt64 = 0
+    private var nextStreamIdentifier: UInt64 = 0
+    private var nextRunIdentifier: UInt64 = 0
+    private var retryIdentifier: UInt64 = 0
+    private var retryScheduled = false
     private var initialTouchBarStatus: Int32?
     private var lastError: TouchBarCaptureError?
     private var lastNotice: TouchBarCaptureNotice?
@@ -180,11 +197,28 @@ final class TouchBarCapture: @unchecked Sendable {
     init(
         onFrame: @escaping FrameHandler,
         onNotice: @escaping NoticeHandler,
-        onError: @escaping ErrorHandler
+        onError: @escaping ErrorHandler,
+        dependencies: TouchBarCaptureDependencies = .live,
+        workerQueue: DispatchQueue = DispatchQueue(
+            label: "com.toubarreplace.display-stream",
+            qos: .userInteractive
+        )
     ) {
         self.onFrame = onFrame
         self.onNotice = onNotice
         self.onError = onError
+        self.dependencies = dependencies
+        self.workerQueue = workerQueue
+    }
+
+    deinit {
+        let remainingStream = stream?.value
+        let originalStatus = initialTouchBarStatus
+        let restoreStatus = dependencies.setTouchBarStatus
+        workerQueue.async {
+            _ = remainingStream?.shutdown()
+            if let originalStatus { restoreStatus(originalStatus) }
+        }
     }
 
     func start() {
@@ -192,6 +226,7 @@ final class TouchBarCapture: @unchecked Sendable {
             guard let self, self.stopped else { return }
             self.stopped = false
             self.generation &+= 1
+            self.cancelRetry()
             self.lastError = nil
             self.lastNotice = nil
             self.startStream(generation: self.generation)
@@ -203,6 +238,7 @@ final class TouchBarCapture: @unchecked Sendable {
             guard let self else { return }
             self.stopped = true
             self.generation &+= 1
+            self.cancelRetry()
             self.stopStream(restoreTouchBarStatus: true)
         }
     }
@@ -212,7 +248,18 @@ final class TouchBarCapture: @unchecked Sendable {
             guard let self else { return }
             self.stopped = true
             self.generation &+= 1
+            self.cancelRetry()
             self.stopStream(restoreTouchBarStatus: false)
+        }
+    }
+
+    func shutdown() {
+        workerQueue.async { [weak self] in
+            guard let self else { return }
+            self.stopped = true
+            self.generation &+= 1
+            self.cancelRetry()
+            self.stopStream(restoreTouchBarStatus: true, shuttingDown: true)
         }
     }
 
@@ -221,62 +268,77 @@ final class TouchBarCapture: @unchecked Sendable {
             guard let self else { return }
             self.stopped = false
             self.generation &+= 1
-            self.stopStream(restoreTouchBarStatus: false)
+            self.cancelRetry()
             self.lastError = nil
             self.lastNotice = nil
+            self.stopStream(restoreTouchBarStatus: false, shuttingDown: true)
             self.startStream(generation: self.generation)
         }
     }
 
     private func startStream(generation: UInt64) {
-        guard !stopped, generation == self.generation, stream == nil else {
-            return
-        }
+        guard !stopped, generation == self.generation else { return }
+        if let stream, !stream.isSuspended { return }
 
         if initialTouchBarStatus == nil {
-            let status = TBRGetTouchBarStatus()
+            let status = dependencies.getTouchBarStatus()
             if status >= 0 {
                 initialTouchBarStatus = status
                 if status & 1 == 0 {
-                    TBRSetTouchBarStatus(status | 1)
+                    dependencies.setTouchBarStatus(status | 1)
                 }
             }
         }
 
-        guard let newStreamHandle = TBRCreateTouchBarDisplayStream(
-            workerQueue,
-            { [weak self] status, _, surface, _ in
-                self?.handleFrame(
-                    status: status,
-                    surface: surface,
-                    generation: generation
-                )
+        let isResuming = stream != nil
+        nextRunIdentifier &+= 1
+        if stream == nil {
+            nextStreamIdentifier &+= 1
+            let identifier = nextStreamIdentifier
+            guard let newStream = dependencies.makeStream(
+                workerQueue,
+                { [weak self] status, surface in
+                    self?.handleFrame(status: status, surface: surface, identifier: identifier)
+                }
+            ) else {
+                report(.streamUnavailable)
+                scheduleRetry(generation: generation)
+                return
             }
-        ) else {
-            report(.streamUnavailable)
-            scheduleRetry(generation: generation)
-            return
+            stream = ActiveStream(
+                token: StreamToken(generation: generation, identifier: identifier,
+                                   runIdentifier: nextRunIdentifier),
+                value: newStream
+            )
         }
-        let newStream = newStreamHandle.takeRetainedValue()
-
-        stream = newStream
-        let result = TBRStartDisplayStream(newStream)
+        guard let current = stream else { return }
+        let token = StreamToken(generation: generation, identifier: current.token.identifier,
+                                runIdentifier: nextRunIdentifier)
+        stream?.token = token
+        stream?.isSuspended = false
+        resetFrameDeliveryState()
+        let result = current.value.start()
         guard result == .success else {
-            stream = nil
+            if isResuming { stream?.isSuspended = true }
+            else { stream = nil }
             report(.streamStartFailed(result.rawValue))
             scheduleRetry(generation: generation)
             return
         }
-        scheduleStartupHealthCheck(generation: generation)
+        scheduleStartupHealthCheck(token: token)
         debugTrace("display stream started")
     }
 
     private func handleFrame(
         status: CGDisplayStreamFrameStatus,
         surface: IOSurfaceRef?,
-        generation: UInt64
+        identifier: UInt64
     ) {
-        guard !stopped, generation == self.generation else { return }
+        if status == .stopped {
+            handleStoppedStream(identifier: identifier)
+            return
+        }
+        guard acceptsFrames(from: identifier) else { return }
 
         switch status {
         case .frameComplete:
@@ -299,10 +361,7 @@ final class TouchBarCapture: @unchecked Sendable {
             handleBlankFrame()
 
         case .stopped:
-            stream = nil
-            resetFrameDeliveryState()
-            report(.streamStopped)
-            scheduleRetry(generation: generation)
+            break
 
         case .frameIdle:
             hasReceivedStreamActivity = true
@@ -310,6 +369,27 @@ final class TouchBarCapture: @unchecked Sendable {
 
         @unknown default:
             break
+        }
+    }
+
+    private func acceptsFrames(from identifier: UInt64) -> Bool {
+        !stopped && stream?.token.identifier == identifier
+            && stream?.token.generation == generation
+            && stream?.isStopping == false && stream?.isSuspended == false
+    }
+
+    private func handleStoppedStream(identifier: UInt64) {
+        guard let stream, stream.token.identifier == identifier else { return }
+        self.stream = nil
+        resetFrameDeliveryState()
+        imageContext?.clearCaches()
+        debugTrace("display stream stopped")
+        guard !stopped else { return }
+        if stream.isStopping || stream.isSuspended {
+            if !retryScheduled { startStream(generation: generation) }
+        } else {
+            report(.streamStopped)
+            scheduleRetry(generation: generation)
         }
     }
 
@@ -366,7 +446,13 @@ final class TouchBarCapture: @unchecked Sendable {
             guard !image.extent.isEmpty, !image.extent.isInfinite else {
                 return nil
             }
-            return imageContext.createCGImage(image, from: image.extent)
+            let context: CIContext
+            if let imageContext { context = imageContext }
+            else {
+                context = CIContext(options: [.cacheIntermediates: false])
+                imageContext = context
+            }
+            return context.createCGImage(image, from: image.extent)
         }
     }
 
@@ -412,16 +498,37 @@ final class TouchBarCapture: @unchecked Sendable {
         return true
     }
 
-    private func stopStream(restoreTouchBarStatus: Bool) {
-        if let stream {
-            _ = TBRStopDisplayStream(stream)
-            self.stream = nil
+    private func stopStream(restoreTouchBarStatus: Bool, shuttingDown: Bool = false) {
+        if shuttingDown { stream?.isShuttingDown = true }
+        if let stream, !stream.isStopping, !stream.isSuspended || shuttingDown {
+            self.stream?.isStopping = true
+            self.stream?.isSuspended = false
+            requestStreamStop(token: stream.token)
         }
         resetFrameDeliveryState()
 
         if restoreTouchBarStatus, let initialTouchBarStatus {
-            TBRSetTouchBarStatus(initialTouchBarStatus)
+            dependencies.setTouchBarStatus(initialTouchBarStatus)
             self.initialTouchBarStatus = nil
+        }
+    }
+
+    private func requestStreamStop(token: StreamToken) {
+        guard let stream, stream.token == token, stream.isStopping else { return }
+        let result = stream.isShuttingDown ? stream.value.shutdown() : stream.value.stop()
+        guard self.stream?.token == token else { return }
+        if result == .success {
+            if !stream.isShuttingDown, stream.value.stopBehavior == .retainForReuse {
+                imageContext?.clearCaches()
+                self.stream?.isStopping = false
+                self.stream?.isSuspended = true
+                if !stopped, !retryScheduled { startStream(generation: generation) }
+            }
+            return
+        }
+        report(.streamStopFailed(result.rawValue))
+        dependencies.schedule(workerQueue, .seconds(1)) { [weak self] in
+            self?.requestStreamStop(token: token)
         }
     }
 
@@ -432,28 +539,36 @@ final class TouchBarCapture: @unchecked Sendable {
     }
 
     private func scheduleRetry(generation: UInt64) {
-        guard !stopped, generation == self.generation else { return }
-        workerQueue.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.startStream(generation: generation)
+        guard !stopped, generation == self.generation, !retryScheduled else { return }
+        retryIdentifier &+= 1
+        let identifier = retryIdentifier
+        retryScheduled = true
+        dependencies.schedule(workerQueue, .seconds(1)) { [weak self] in
+            guard let self, !self.stopped, generation == self.generation,
+                  self.retryScheduled, identifier == self.retryIdentifier else { return }
+            self.retryScheduled = false
+            self.startStream(generation: generation)
         }
     }
 
-    private func scheduleStartupHealthCheck(generation: UInt64) {
-        workerQueue.asyncAfter(
-            deadline: .now() + Self.streamStartupTimeout
-        ) { [weak self] in
+    private func cancelRetry() {
+        retryIdentifier &+= 1
+        retryScheduled = false
+    }
+
+    private func scheduleStartupHealthCheck(token: StreamToken) {
+        dependencies.schedule(workerQueue, Self.streamStartupTimeout) { [weak self] in
             guard
                 let self,
-                !self.stopped,
-                generation == self.generation,
-                self.stream != nil,
+                self.stream?.token == token,
+                self.acceptsFrames(from: token.identifier),
                 !self.hasReceivedStreamActivity
             else {
                 return
             }
-            self.stopStream(restoreTouchBarStatus: false)
             self.report(.streamStartupTimedOut)
-            self.scheduleRetry(generation: generation)
+            self.scheduleRetry(generation: self.generation)
+            self.stopStream(restoreTouchBarStatus: false, shuttingDown: true)
         }
     }
 

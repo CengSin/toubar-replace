@@ -12,6 +12,7 @@
   - 画面承载视图：`TouchBarSurfaceView`（`contentsGravity = .resizeAspect`，`contentsScale` 跟随屏幕，缩小时使用 `.trilinear` 采样，逐帧通过 `replaceFrameContents(_:)` 即时更新）
   - 桌面材质容器：`DesktopGlassHostView`（毛玻璃主题使用 `.clear` 样式的 `NSGlassEffectView`，通过 `contentView` 承载 `DesktopCapsuleView` 及内部 `TouchBarRootView`）
   - 镜像背景处理：`MirrorGlassFrameRenderer`、`MirrorGlassFramePipeline`、`TBRMirrorFrameProcess`（复用原生像素缓冲区，识别黑底和圆角灰色底板，使用 `MirrorGlassAppearance` 适配单色符号，保留 `latestOriginalFrame`）
+  - 显示流生命周期：`TouchBarCapture`、`SystemTouchBarDisplayStream`、`RetainedTouchBarSurface`、`TouchBarStopSignalTracker`（底层捕获流保持单一会话，使用 IOSurface 引用与使用计数保留最近一帧，识别私有 DFR 的零时间戳空帧停止通知）
   - 物理用量横滑同步：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`（同步物理用量区视口、内容宽度与横滑位置）
   - Fn 显示同步：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarSurfaceView.onGlassFrameDisplayed`（读取当前 Fn 状态，等待新捕获完成玻璃合成后显示系统临时画面）
   - 状态提示文本：`statusLabel`（`NSTextField`，全黑主题白字，毛玻璃主题使用自适应前景）
@@ -24,6 +25,8 @@
 - 子功能：
   - 唤醒层与捕获调度：隐藏与展开动画期间保留原场景画面，抑制唤醒层捕获；恢复正常物理控件后接入显示流
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
+  - 显示流暂停与恢复：隐藏和睡眠时暂停图像转换与交付、清理临时图像缓存，底层捕获会话保持连接；恢复时交付最新缓存画面并继续接收更新。最新 IOSurface 通过引用与使用计数管理，替换和关闭时平衡释放
+  - 显示流关闭与重连：退出应用和故障重连时真正停止底层流，接收标准 `.stopped` 或私有 DFR 的零时间戳空帧确认，等待回调退出后释放流与缓存。每条流独立校验画面回调，每次恢复独立校验启动超时，停止失败时保留该流并定时重试
   - 桌面默认展示：启动时按配置尺寸展示当前场景；硬件镜像采用鼠标穿透，位置由设置控制
   - 手动显隐与激活：状态栏菜单或物理隐藏键通过 `orderOut` 隐藏整个窗口；Touch Bar 整条轻触唤醒，抬手和动画完成后恢复原场景操作；同一 Space 内保持手动显隐状态，全屏内可临时唤醒
   - 全屏自动显隐：进入全屏应用或分屏全屏 Space 自动隐藏，从全屏返回普通桌面、切换到其他普通桌面后自动显示当前场景；启动时按当前 Space 显隐，多屏跟随界面所在屏幕。Space 转场后分次复查，重复通知保留手动操作；唤醒与屏幕配置变化后重新检查

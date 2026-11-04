@@ -83,23 +83,24 @@ final class DesktopWakeRegionView: NSView {
 @MainActor
 final class DesktopWakeTouchBarController: NSObject, NSTouchBarDelegate {
     static let placement: Int64 = 1
-    static let presentationMode = "app"
     static let wakeIdentifier = NSTouchBarItem.Identifier("com.toubarreplace.desktop.wake")
     static let escapeIdentifier = NSTouchBarItem.Identifier("com.toubarreplace.desktop.wake.escape")
     let touchBar = NSTouchBar()
     let wakeView = DesktopWakeRegionView(width: WorkspaceTouchBarLayout.maximumContentWidth
         - WorkspaceTouchBarLayout.switcherWidth - WorkspaceTouchBarLayout.switcherContentGap, showsTitle: true)
     let escapeView = DesktopWakeRegionView(width: WorkspaceTouchBarLayout.switcherWidth, showsTitle: false)
-    private var previousMode: String?
-    private var previousInactiveStatus: Int32?
-    private var attached = false
     private var trackingRegions: [ObjectIdentifier: Int] = [:]
-    private var repairTask: Task<Void, Never>?
+    private lazy var recovery = TouchBarPresentationRecovery { [weak self] in
+        guard let self, self.isPresented else { return true }
+        guard self.wakeView.window == nil || self.escapeView.window == nil else { return true }
+        TBRDismissSystemModalTouchBar(self.touchBar)
+        TBRPresentSystemModalTouchBar(self.touchBar, Self.placement)
+        return self.wakeView.window != nil && self.escapeView.window != nil
+    }
     private(set) var isPresented = false
     var isTrackingTouch: Bool { !trackingRegions.isEmpty }
     var onWake: (() -> Void)?
     var onTouchReleased: (() -> Void)?
-    var onPresentationInterrupted: (() -> Void)?
 
     override init() {
         super.init()
@@ -128,34 +129,18 @@ final class DesktopWakeTouchBarController: NSObject, NSTouchBarDelegate {
     func present() {
         guard !isPresented else { TBRSetSystemModalShowsCloseBoxWhenFrontMost(false); return }
         guard TBRCanPresentSystemModalTouchBar() else { return }
-        previousMode = TouchBarPresentationPreferences.currentMode
-        let status = TBRGetTouchBarStatus()
-        if status >= 0 && status & 1 == 0 {
-            previousInactiveStatus = status
-            TBRSetTouchBarStatus(status | 1)
-        }
-        repairTask?.cancel()
-        attached = false
         isPresented = true
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(false)
         TBRPresentSystemModalTouchBar(touchBar, Self.placement)
-        TouchBarPresentationPreferences.setCurrentMode(Self.presentationMode)
+        recovery.schedule()
     }
 
     func dismiss() {
         guard isPresented else { return }
         isPresented = false
-        repairTask?.cancel()
-        repairTask = nil
-        if TouchBarPresentationPreferences.currentMode == Self.presentationMode {
-            TouchBarPresentationPreferences.setCurrentMode(previousMode)
-        }
+        recovery.cancel()
         TBRDismissSystemModalTouchBar(touchBar)
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
-        if let previousInactiveStatus { TBRSetTouchBarStatus(previousInactiveStatus) }
-        previousInactiveStatus = nil
-        previousMode = nil
-        attached = false
         trackingRegions.removeAll()
     }
 
@@ -167,16 +152,13 @@ final class DesktopWakeTouchBarController: NSObject, NSTouchBarDelegate {
         return item
     }
 
-    private func attachmentChanged(_ isAttached: Bool) {
-        repairTask?.cancel()
-        if isAttached { attached = true; return }
-        guard isPresented && attached else { return }
-        repairTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self, self.isPresented,
-                  self.wakeView.window == nil && self.escapeView.window == nil else { return }
-            self.dismiss()
-            self.onPresentationInterrupted?()
-        }
+    func reconcilePresentation() {
+        guard isPresented else { return }
+        recovery.schedule()
     }
+
+    private func attachmentChanged(_ isAttached: Bool) {
+        reconcilePresentation()
+    }
+
 }

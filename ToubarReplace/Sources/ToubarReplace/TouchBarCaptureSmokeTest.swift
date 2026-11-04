@@ -37,7 +37,6 @@ private final class SmokeTouchBarCaptureProbe: @unchecked Sendable {
     private var scheduled: [ScheduledWork] = []
     private var events: [String] = []
     private var errors: [TouchBarCaptureError] = []
-    private var status: Int32 = 0
     private var unavailableCreations: Int
     private var startResults: [CGError]
     private var stopResults: [CGError]
@@ -94,13 +93,6 @@ private final class SmokeTouchBarCaptureProbe: @unchecked Sendable {
                         let stream = SmokeTouchBarDisplayStream(identifier: identifier, probe: self)
                         records[identifier] = StreamRecord(stream: stream, queue: queue, onEvent: onEvent)
                         return stream
-                    }
-                },
-                getTouchBarStatus: { [self] in lock.withLock { status } },
-                setTouchBarStatus: { [self] value in
-                    lock.withLock {
-                        status = value
-                        events.append("status:\(value)")
                     }
                 },
                 schedule: { [self] queue, delay, work in
@@ -166,8 +158,8 @@ enum TouchBarCaptureSmokeTest {
             capture.pause()
             capture.pause()
             await probe.flush()
-            expect(probe.isRetained(1) && probe.count("stop:1") == 1 && probe.count("status:0") == 0,
-                   "pause must retain the stopping stream and preserve Touch Bar status")
+            expect(probe.isRetained(1) && probe.count("stop:1") == 1,
+                   "pause must retain the stopping stream")
 
             for _ in 0..<100 {
                 capture.start()
@@ -210,8 +202,8 @@ enum TouchBarCaptureSmokeTest {
 
             capture.stop()
             await probe.flush()
-            expect(probe.isRetained(3) && probe.count("status:0") == 1,
-                   "full stop must restore the original Touch Bar status while awaiting stopped")
+            expect(probe.isRetained(3),
+                   "full stop must retain the stream while awaiting stopped")
             probe.emit(.stopped, from: 3)
             await probe.flush()
             expect(!probe.isRetained(3) && probe.creationCount == 3,
@@ -359,8 +351,8 @@ enum TouchBarCaptureSmokeTest {
                    "a resumed DFR stream must accept current activity and ignore an old startup timer")
             capture.stop()
             await probe.flush()
-            expect(probe.isRetained(1) && probe.count("stop:1") == 101 && probe.count("status:0") == 1,
-                   "stopping DFR capture must suspend and retain its object while restoring Touch Bar status")
+            expect(probe.isRetained(1) && probe.count("stop:1") == 101,
+                   "stopping DFR capture must suspend and retain its object without writing Touch Bar status")
             capture.shutdown()
             await probe.flush()
             expect(probe.isRetained(1) && probe.count("stop:1") == 102,

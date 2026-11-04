@@ -14,6 +14,7 @@
     killall ControlStrip
     ```
 - 子功能：
+  - 系统设置引导：帮助开头说明「系统设置 → 键盘 → 触控栏设置」，调整触控栏显示内容和 Fn 行为
   - 展示 Control Strip 修复指南：给出重置 macOS 系统级触控栏配置并杀死 ControlStrip 守护进程的标准命令
   - 激活策略安全隔离：打开时临时切换到 `.regular` 模式以展示模态窗口，关闭后安全恢复为 `.accessory` 模式
   - 自动呈现保活：弹窗关闭后自动调用 `ensurePhysicalSwitcherPresented()`，确保物理栏网格按钮未被系统意外注销
@@ -30,7 +31,7 @@
   - 校验底层 DFR 流只创建和启动一次，最终关闭时释放全部流对象；输出 `native_starts`、`native_shutdowns`、`retained_streams` 等 JSON 验收指标
   - 压力模式预热后输出 `phase: ready`，随后等待 3 秒开始循环，供外部采样建立启动后的内存基准
   - 恢复时复用按 IOSurface 引用和使用计数保留的最近画面；关闭时识别私有 DFR 的零时间戳空帧通知并完成释放
-  - 运行超时自动退出；运行结束恢复探针启动前的 Touch Bar 状态
+  - 运行超时自动退出；捕获启停沿用系统原有 Touch Bar 状态
 - 前置条件：具有物理 Touch Bar 的 Mac、项目构建工具及 macOS 26 或更新版本 SDK
 - 常见故障现象：
   - `passed` 为 `false`：检查输出中的 `errors`、`raw_frames`、`delivered_frames` 和启停计数，结合系统显示流日志排查

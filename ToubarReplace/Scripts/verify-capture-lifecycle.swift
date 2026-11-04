@@ -92,8 +92,6 @@ private final class CaptureLifecycleProbe: @unchecked Sendable {
                     lock.withLock { handles.append(WeakMeasuredStream(measured)) }
                     return measured
                 },
-                getTouchBarStatus: live.getTouchBarStatus,
-                setTouchBarStatus: live.setTouchBarStatus,
                 schedule: live.schedule
             ),
             workerQueue: queue

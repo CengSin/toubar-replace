@@ -16,7 +16,8 @@
   - 隐藏桌面界面：轻触网格右侧的下箭头，整个桌面窗口退出显示，整条物理 Touch Bar 切换为唤醒入口
   - 维持 Control Strip 协同：使用 Placement 0 策略，确保系统音量、亮度等 Control Strip 正常常驻
   - 系统关闭盒抑制：在设置窗口或其它应用激活时，异步抑制并隐藏系统插入的 "X" 关闭按钮（`suppressCloseBox` / `TBRHideSystemModalCloseButton`）
-  - 异常脱离自愈恢复：监听 Touch Bar Window 挂载与脱离事件，当系统意外关闭该 Item 时自动重新挂载呈现
+  - 异常脱离自愈恢复：`TouchBarPresentationRecovery` 在首次呈现、窗口挂载变化、应用激活和 Fn 松开后延迟 350ms 检查挂载。按住 Fn 时等待系统临时画面结束，松开后恢复切换钮；单轮恢复最多尝试 3 次，场景退出时取消旧任务
+  - 关闭按钮任务隔离：物理模态每次呈现和关闭均更新会话代次，延迟隐藏任务仅对原会话生效，并在 Fn 按住时避让系统功能键视图
 - 前置条件：具备物理 Touch Bar 硬件（Intel Mac）；私有 System Modal API 可用
 - 常见故障现象：
   - 网格旁突然出现 "X" 关闭键：应用切换到前台或打开设置激活了系统模态关闭盒，ToubarReplace 会在激活后异步重新隐藏

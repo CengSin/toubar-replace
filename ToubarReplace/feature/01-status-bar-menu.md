@@ -8,6 +8,7 @@
   - 图标无障碍标签：`accessibilityDescription: "ToubarReplace"`
   - 界面显隐菜单项：`NSMenuItem(title: "显示 / 隐藏 ToubarReplace", action: #selector(toggleCapsule))`
   - 场景切换菜单项：`NSMenuItem(title: "切换 Touch Bar / Workspace", action: #selector(toggleWorkspace))`
+  - 系统 Touch Bar 设置入口：`NSMenuItem(title: "Touch Bar 系统设置…", action: #selector(openTouchBarSystemSettings))`
   - 菜单项 2：`NSMenuItem(title: "设置…", action: #selector(showSettings))`
   - 菜单项 3：`NSMenuItem(title: "版本 \(ToubarReplaceAppInfo.version)", action: nil)`（`isEnabled = false`）
   - 菜单项 4：`NSMenuItem(title: "帮助…", action: #selector(showHelp))`
@@ -18,6 +19,7 @@
   - 全屏显隐联动：进入全屏 Space 自动隐藏，返回普通桌面自动显示；菜单操作在同一 Space 内保持有效，全屏内可临时显示
   - 场景切换：在 Touch Bar 镜像与 Workspace 间切换，软件设备可从菜单进入工作台
   - 打开设置窗口：将应用临时切换为前台激活模式（`NSApp.setActivationPolicy(.regular)`）并调出设置窗口
+  - 打开系统键盘设置：点击「Touch Bar 系统设置…」进入系统键盘面板，在「触控栏设置」中调整镜像内容和 Fn 行为
   - 显示当前版本号：展示已安装应用的语义化版本号
   - 查看帮助指引：弹出 Control Strip 终端重置与恢复命令弹窗
   - 退出应用：彻底终止应用程序进程（`NSApp.terminate`）

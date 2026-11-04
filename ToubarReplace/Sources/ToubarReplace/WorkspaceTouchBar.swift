@@ -1494,29 +1494,10 @@ enum WorkspacePresentationModePolicy {
             return .preserveCurrent
         }
 
-
-
-        if hadPreviousMode, let previousMode, previousMode != workspaceMode {
+        if hadPreviousMode, let previousMode {
             return .set(previousMode)
         }
         return .remove
-    }
-}
-
-enum WorkspacePresentationInterruptionPolicy {
-    static func shouldInterrupt(
-        isPresented: Bool,
-        hasAttachedToWindow: Bool,
-        isExplicitlyDismissing: Bool,
-        isCurrentlyAttached: Bool,
-        currentMode: String?,
-        workspaceMode: String
-    ) -> Bool {
-        isPresented
-            && hasAttachedToWindow
-            && !isExplicitlyDismissing
-            && !isCurrentlyAttached
-            && currentMode != workspaceMode
     }
 }
 
@@ -1542,9 +1523,18 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     private var customApps: [CustomWorkspaceApp] = []
     private var previousPresentationMode: String?
     private var hadPreviousPresentationMode = false
-    private var hasAttachedToTouchBarWindow = false
-    private var isExplicitlyDismissing = false
-    private var detachmentTask: Task<Void, Never>?
+    private lazy var recovery = TouchBarPresentationRecovery { [weak self] in
+        guard let self, self.isPresented else { return true }
+        guard self.contentView.window == nil || self.returnView.window == nil else { return true }
+        if TouchBarPresentationPreferences.currentMode != WorkspaceTouchBarLayout.presentationMode {
+            self.dismiss()
+            self.onPresentationInterrupted?()
+            return true
+        }
+        TBRDismissSystemModalTouchBar(self.touchBar)
+        TBRPresentSystemModalTouchBar(self.touchBar, WorkspaceTouchBarLayout.placement)
+        return self.contentView.window != nil && self.returnView.window != nil
+    }
     private(set) var isPresented = false
 
     var onOpenSettings: (() -> Void)?
@@ -1610,9 +1600,6 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         let storedMode = TouchBarPresentationPreferences.currentMode
         hadPreviousPresentationMode = storedMode != nil
         previousPresentationMode = storedMode
-        detachmentTask?.cancel()
-        hasAttachedToTouchBarWindow = false
-        isExplicitlyDismissing = false
         isPresented = true
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(false)
         TBRPresentSystemModalTouchBar(
@@ -1622,15 +1609,13 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         TouchBarPresentationPreferences.setCurrentMode(
             WorkspaceTouchBarLayout.presentationMode
         )
-
-
+        recovery.schedule()
     }
 
     func dismiss() {
         guard isPresented else { return }
-        isExplicitlyDismissing = true
-        detachmentTask?.cancel()
-        detachmentTask = nil
+        isPresented = false
+        recovery.cancel()
         let dismissalAction = WorkspacePresentationModePolicy.dismissalAction(
             currentMode: TouchBarPresentationPreferences.currentMode,
             workspaceMode: WorkspaceTouchBarLayout.presentationMode,
@@ -1649,9 +1634,6 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
         previousPresentationMode = nil
         hadPreviousPresentationMode = false
-        hasAttachedToTouchBarWindow = false
-        isPresented = false
-        isExplicitlyDismissing = false
     }
 
     func showQuota(_ state: QuotaBoardState) {
@@ -1704,41 +1686,13 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         }
     }
 
-    private func handleWindowAttachmentChanged(_ attached: Bool) {
-        detachmentTask?.cancel()
-        detachmentTask = nil
-        if attached {
-            guard isPresented else { return }
-            hasAttachedToTouchBarWindow = true
-            return
-        }
-        guard
-            isPresented,
-            hasAttachedToTouchBarWindow,
-            !isExplicitlyDismissing
-        else {
-            return
-        }
-
-        detachmentTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self else { return }
-            guard WorkspacePresentationInterruptionPolicy.shouldInterrupt(
-                isPresented: self.isPresented,
-                hasAttachedToWindow: self.hasAttachedToTouchBarWindow,
-                isExplicitlyDismissing: self.isExplicitlyDismissing,
-                isCurrentlyAttached: self.contentView.window != nil,
-                currentMode: TouchBarPresentationPreferences.currentMode,
-                workspaceMode: WorkspaceTouchBarLayout.presentationMode
-            ) else {
-                return
-            }
-            self.previousPresentationMode = nil
-            self.hadPreviousPresentationMode = false
-            self.hasAttachedToTouchBarWindow = false
-            self.isPresented = false
-            TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
-            self.onPresentationInterrupted?()
-        }
+    func reconcilePresentation() {
+        guard isPresented else { return }
+        recovery.schedule()
     }
+
+    private func handleWindowAttachmentChanged(_ attached: Bool) {
+        reconcilePresentation()
+    }
+
 }

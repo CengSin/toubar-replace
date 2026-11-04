@@ -79,6 +79,7 @@ enum TouchBarPresentationPreferences {
     }
 
     static func setCurrentMode(_ mode: String?) {
+        guard currentMode != mode else { return }
         if let mode {
             CFPreferencesSetAppValue(
                 presentationModeKey as CFString,
@@ -93,14 +94,6 @@ enum TouchBarPresentationPreferences {
             )
         }
         CFPreferencesAppSynchronize(applicationIdentifier as CFString)
-    }
-
-
-
-
-    static func clearWorkspaceAppModeIfPresent(workspaceMode: String) {
-        guard currentMode == workspaceMode else { return }
-        setCurrentMode(nil)
     }
 }
 
@@ -186,7 +179,6 @@ final class TouchBarCapture: @unchecked Sendable {
     private var nextRunIdentifier: UInt64 = 0
     private var retryIdentifier: UInt64 = 0
     private var retryScheduled = false
-    private var initialTouchBarStatus: Int32?
     private var lastError: TouchBarCaptureError?
     private var lastNotice: TouchBarCaptureNotice?
     private var consecutiveBlackFrames = 0
@@ -213,11 +205,8 @@ final class TouchBarCapture: @unchecked Sendable {
 
     deinit {
         let remainingStream = stream?.value
-        let originalStatus = initialTouchBarStatus
-        let restoreStatus = dependencies.setTouchBarStatus
         workerQueue.async {
             _ = remainingStream?.shutdown()
-            if let originalStatus { restoreStatus(originalStatus) }
         }
     }
 
@@ -239,7 +228,7 @@ final class TouchBarCapture: @unchecked Sendable {
             self.stopped = true
             self.generation &+= 1
             self.cancelRetry()
-            self.stopStream(restoreTouchBarStatus: true)
+            self.stopStream()
         }
     }
 
@@ -249,7 +238,7 @@ final class TouchBarCapture: @unchecked Sendable {
             self.stopped = true
             self.generation &+= 1
             self.cancelRetry()
-            self.stopStream(restoreTouchBarStatus: false)
+            self.stopStream()
         }
     }
 
@@ -259,7 +248,7 @@ final class TouchBarCapture: @unchecked Sendable {
             self.stopped = true
             self.generation &+= 1
             self.cancelRetry()
-            self.stopStream(restoreTouchBarStatus: true, shuttingDown: true)
+            self.stopStream(shuttingDown: true)
         }
     }
 
@@ -271,7 +260,7 @@ final class TouchBarCapture: @unchecked Sendable {
             self.cancelRetry()
             self.lastError = nil
             self.lastNotice = nil
-            self.stopStream(restoreTouchBarStatus: false, shuttingDown: true)
+            self.stopStream(shuttingDown: true)
             self.startStream(generation: self.generation)
         }
     }
@@ -279,16 +268,6 @@ final class TouchBarCapture: @unchecked Sendable {
     private func startStream(generation: UInt64) {
         guard !stopped, generation == self.generation else { return }
         if let stream, !stream.isSuspended { return }
-
-        if initialTouchBarStatus == nil {
-            let status = dependencies.getTouchBarStatus()
-            if status >= 0 {
-                initialTouchBarStatus = status
-                if status & 1 == 0 {
-                    dependencies.setTouchBarStatus(status | 1)
-                }
-            }
-        }
 
         let isResuming = stream != nil
         nextRunIdentifier &+= 1
@@ -498,7 +477,7 @@ final class TouchBarCapture: @unchecked Sendable {
         return true
     }
 
-    private func stopStream(restoreTouchBarStatus: Bool, shuttingDown: Bool = false) {
+    private func stopStream(shuttingDown: Bool = false) {
         if shuttingDown { stream?.isShuttingDown = true }
         if let stream, !stream.isStopping, !stream.isSuspended || shuttingDown {
             self.stream?.isStopping = true
@@ -507,10 +486,7 @@ final class TouchBarCapture: @unchecked Sendable {
         }
         resetFrameDeliveryState()
 
-        if restoreTouchBarStatus, let initialTouchBarStatus {
-            dependencies.setTouchBarStatus(initialTouchBarStatus)
-            self.initialTouchBarStatus = nil
-        }
+
     }
 
     private func requestStreamStop(token: StreamToken) {
@@ -568,7 +544,7 @@ final class TouchBarCapture: @unchecked Sendable {
             }
             self.report(.streamStartupTimedOut)
             self.scheduleRetry(generation: self.generation)
-            self.stopStream(restoreTouchBarStatus: false, shuttingDown: true)
+            self.stopStream(shuttingDown: true)
         }
     }
 

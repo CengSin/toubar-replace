@@ -21,14 +21,21 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
 
     let touchBar = NSTouchBar()
     private let hostView = SwitcherTouchBarHostView()
-    private var hasAttachedToTouchBarWindow = false
-    private var isExplicitlyDismissing = false
-    private var detachmentTask: Task<Void, Never>?
+    private lazy var recovery = TouchBarPresentationRecovery { [weak self] in
+        guard let self, self.isPresented else { return true }
+        guard self.hostView.window == nil else {
+            self.suppressCloseBox()
+            return true
+        }
+        TBRDismissSystemModalTouchBar(self.touchBar)
+        TBRPresentSystemModalTouchBar(self.touchBar, Self.placement)
+        self.suppressCloseBox()
+        return self.hostView.window != nil
+    }
     private(set) var isPresented = false
     var onToggleWorkspace: (() -> Void)?
     var onCollapse: (() -> Void)?
 
-    var onPresentationInterrupted: (() -> Void)?
 
     override init() {
         super.init()
@@ -51,25 +58,19 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
         }
         guard TBRCanPresentSystemModalTouchBar() else { return }
 
-        detachmentTask?.cancel()
-        hasAttachedToTouchBarWindow = false
-        isExplicitlyDismissing = false
         isPresented = true
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(false)
         TBRPresentSystemModalTouchBar(touchBar, Self.placement)
         suppressCloseBox()
+        recovery.schedule()
     }
 
     func dismiss() {
         guard isPresented else { return }
-        isExplicitlyDismissing = true
-        detachmentTask?.cancel()
-        detachmentTask = nil
+        isPresented = false
+        recovery.cancel()
         TBRDismissSystemModalTouchBar(touchBar)
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
-        hasAttachedToTouchBarWindow = false
-        isPresented = false
-        isExplicitlyDismissing = false
     }
 
 
@@ -92,40 +93,17 @@ final class SwitcherTouchBarController: NSObject, NSTouchBarDelegate {
         return item
     }
 
-    private func handleWindowAttachmentChanged(_ attached: Bool) {
-        detachmentTask?.cancel()
-        detachmentTask = nil
-        if attached {
-            guard isPresented else { return }
-            hasAttachedToTouchBarWindow = true
-            suppressCloseBox()
-            return
-        }
-        guard
-            isPresented,
-            hasAttachedToTouchBarWindow,
-            !isExplicitlyDismissing
-        else {
-            return
-        }
-
-        detachmentTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self else { return }
-            guard
-                self.isPresented,
-                self.hasAttachedToTouchBarWindow,
-                !self.isExplicitlyDismissing,
-                self.hostView.window == nil
-            else {
-                return
-            }
-            self.hasAttachedToTouchBarWindow = false
-            self.isPresented = false
-            TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
-            self.onPresentationInterrupted?()
-        }
+    func reconcilePresentation() {
+        guard isPresented else { return }
+        recovery.schedule()
     }
+
+    private func handleWindowAttachmentChanged(_ attached: Bool) {
+        guard isPresented else { return }
+        if attached { suppressCloseBox() }
+        reconcilePresentation()
+    }
+
 }
 
 @MainActor

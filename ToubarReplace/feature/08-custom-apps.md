@@ -5,6 +5,7 @@
 - 入口：位于 Workspace 触控托盘右侧（宽度由设置「区域比例」决定，默认占据托盘 30% 宽度）
 - 关键选择器：
   - 应用区容器：`WorkspaceCustomAppsView`
+  - 启动与完成控制：`CustomWorkspaceAppLauncher`、`CustomWorkspaceAppLaunchCompletion`、`TouchBarWindowController.openCustomWorkspaceApp(_:)`
   - 空态添加按钮：`WorkspaceChromeButton`
     - 标题：`"自定义app"`
     - Tooltip：`"点击在设置中添加常用应用"`
@@ -18,11 +19,11 @@
     - 无障碍标签：`accessibilityLabel: "管理常用应用"`
     - Tooltip：`"管理常用应用"`
 - 子功能：
-  - 一键快速拉起应用：轻触应用图标瞬间通过 `NSWorkspace.shared.open` 启动或聚焦对应应用程序
+  - 一键快速拉起应用：轻触应用图标瞬间通过 `NSWorkspace.shared.openApplication(at:configuration:completionHandler:)` 启动或聚焦对应应用程序
   - 引导配置常用应用：空态下显示「自定义app」大按钮，点击直接呼出设置面板的常用应用添加流程
   - 常驻设置入口：右侧常驻齿轮按钮，随时可唤起设置面板进行新增、替换或移除
   - 等分自适应网格排布：槽位宽度根据当前已固定应用数量自适应均分铺满，图标保持标准尺寸居中显示
-  - 启动失败错误反馈：当被选应用移动、丢失或无执行权限时，弹窗提示明确错误原因，禁止静默忽略
+  - 启动失败错误反馈：当被选应用移动、丢失或无执行权限时，弹窗提示明确错误原因；系统超过 15 秒未完成时提示超时并允许重试，同一应用启动期间合并连续点击，迟到回调仅完成一次
 - 前置条件：在设置中已固定至少 1 个本机 `.app` 应用（最多 5 个）
 - 常见故障现象：
   - 点击图标无任何反应：应用被删除或路径发生变化，需在设置中点击「替换…」重新指定

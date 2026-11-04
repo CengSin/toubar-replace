@@ -328,6 +328,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private var workspaceGeneration: UInt64 = 0
     private var quotaRefreshTask: Task<Void, Never>?
     private var physicalWorkspacePresentationTask: Task<Void, Never>?
+    private var launchingApps: Set<String> = []
 
 
     private var forceFloatingSwitcher = false
@@ -336,6 +337,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     var onCustomTopLeftChanged: ((CGPoint) -> Void)?
 
     var onOpenSettings: (() -> Void)?
+    var onApplicationLaunchFailed: ((String, String) -> Void)?
 
     var onQuotaProvidersChanged: (() -> Void)?
 
@@ -415,6 +417,9 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         )
 
         super.init(window: panel)
+        functionKeyMonitor.onStateChanged = { [weak self] pressed in
+            if !pressed { self?.reconcilePhysicalTouchBar() }
+        }
         spaceVisibilityMonitor = DesktopSpaceVisibilityMonitor(window: panel) { [weak self] expanded in
             self?.capsuleController.setExpanded(expanded)
         }
@@ -428,7 +433,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             self.capsuleController.show()
         }
         wakeTouchBarController.onTouchReleased = { [weak self] in self?.synchronizePhysicalTouchBar() }
-        wakeTouchBarController.onPresentationInterrupted = { [weak self] in self?.synchronizePhysicalTouchBar() }
         installWorkspaceActions()
         configureDesktopCapsule()
         installWorkspaceObservers()
@@ -697,10 +701,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         switcherTouchBarController.onToggleWorkspace = { [weak self] in
             self?.toggleWorkspace()
         }
-        switcherTouchBarController.onPresentationInterrupted = { [weak self] in
-
-            self?.presentPhysicalSwitcherIfNeeded()
-        }
     }
 
     private var usesSoftwareWorkspace: Bool {
@@ -730,10 +730,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateFunctionKeyMonitoring() {
-        if isRunning && !isHardwareSessionPaused && !usesSoftwareWorkspace
-            && desktopTouchBarPresentation == .scene
-            && rootView.scene == .workspace
-            && !rootView.showsWorkspaceFallback {
+        if isRunning && !isHardwareSessionPaused && !usesSoftwareWorkspace {
             functionKeyMonitor.start()
         } else {
             functionKeyMonitor.stop()
@@ -794,6 +791,13 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func reconcilePhysicalTouchBar() {
+        guard isRunning, !isHardwareSessionPaused, !usesSoftwareWorkspace else { return }
+        switcherTouchBarController.reconcilePresentation()
+        workspaceTouchBarController.reconcilePresentation()
+        wakeTouchBarController.reconcilePresentation()
+    }
+
     private func presentPhysicalSwitcherIfNeeded() {
         guard isRunning, rootView.scene == .mirror else { return }
         guard desktopTouchBarPresentation == .scene else { synchronizePhysicalTouchBar(); return }
@@ -805,9 +809,6 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
             switcherTouchBarController.dismiss()
             return
         }
-        TouchBarPresentationPreferences.clearWorkspaceAppModeIfPresent(
-            workspaceMode: WorkspaceTouchBarLayout.presentationMode
-        )
         switcherTouchBarController.present()
     }
 
@@ -997,13 +998,17 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func openCustomWorkspaceApp(_ app: CustomWorkspaceApp) {
+        guard launchingApps.insert(app.applicationPath).inserted else { return }
         let generation = workspaceGeneration
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.launchingApps.remove(app.applicationPath) }
             do {
                 try await CustomWorkspaceAppLauncher.open(app)
+                self.reconcilePhysicalTouchBar()
             } catch {
                 guard self.canUpdateWorkspace(from: generation) else { return }
+                self.onApplicationLaunchFailed?(app.displayName, error.localizedDescription)
             }
         }
     }
@@ -1035,6 +1040,15 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     private func installWorkspaceObservers() {
         let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.functionKeyMonitor.refresh()
+                self?.reconcilePhysicalTouchBar()
+            }
+        })
         let pauseNotifications: [Notification.Name] = [
             NSWorkspace.sessionDidResignActiveNotification,
             NSWorkspace.screensDidSleepNotification,

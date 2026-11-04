@@ -17,6 +17,21 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
         controller.onOpenSettings = { [weak self] in
             self?.showSettings()
         }
+        controller.onApplicationLaunchFailed = { [weak self] name, reason in
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "无法打开「\(name)」"
+            alert.informativeText = reason
+            alert.addButton(withTitle: "完成")
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            self?.windowController?.suppressPhysicalSwitcherCloseBox()
+            alert.runModal()
+            if self?.settingsWindowController?.window?.isVisible != true {
+                NSApp.setActivationPolicy(.accessory)
+            }
+            self?.windowController?.ensurePhysicalSwitcherPresented()
+        }
         controller.onQuotaProvidersChanged = { [weak self] in
             guard let self, let settings = self.settingsWindowController else {
                 return
@@ -64,6 +79,12 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let systemSettingsItem = NSMenuItem(
+            title: "Touch Bar 系统设置…", action: #selector(openTouchBarSystemSettings), keyEquivalent: ""
+        )
+        systemSettingsItem.target = self
+        menu.addItem(systemSettingsItem)
 
         let versionItem = NSMenuItem(
             title: "版本 \(ToubarReplaceAppInfo.version)",
@@ -189,11 +210,18 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    private func openTouchBarSystemSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!)
+    }
+
+    @objc
     private func showHelp() {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "ToubarReplace 帮助"
         alert.informativeText = """
+        Touch Bar 的显示内容与 Fn 行为，请在“系统设置 → 键盘 → 触控栏设置”中调整。
+
         如果镜像窗口显示 Touch Bar 错误，请打开“终端”并依次执行以下命令，随后等待几秒钟让显示流自动恢复：
 
         \(ToubarReplaceAppInfo.recoveryCommands)

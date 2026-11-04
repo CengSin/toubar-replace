@@ -215,7 +215,11 @@ void TBRSetSystemModalShowsCloseBoxWhenFrontMost(bool showsCloseBox) {
     }
 }
 
+static uint64_t TBRModalPresentationGeneration = 0;
+
 static void TBRHideSystemModalCloseButtonNow(void) {
+    if (CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)
+        & kCGEventFlagMaskSecondaryFn) { return; }
     Class functionRowClass = NSClassFromString(@"NSFunctionRow");
     SEL topLevelViewsSelector = NSSelectorFromString(
         @"_topLevelFunctionRowViews"
@@ -250,19 +254,23 @@ static void TBRHideSystemModalCloseButtonNow(void) {
 }
 
 void TBRHideSystemModalCloseButton(void) {
+    uint64_t generation = TBRModalPresentationGeneration;
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (generation != TBRModalPresentationGeneration) { return; }
         TBRHideSystemModalCloseButtonNow();
     });
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
         dispatch_get_main_queue(),
         ^{
+            if (generation != TBRModalPresentationGeneration) { return; }
             TBRHideSystemModalCloseButtonNow();
         }
     );
 }
 
 void TBRPresentSystemModalTouchBar(NSTouchBar *touchBar, int64_t placement) {
+    TBRModalPresentationGeneration += 1;
     if (!TBRCanPresentSystemModalTouchBar()) {
         return;
     }
@@ -272,6 +280,7 @@ void TBRPresentSystemModalTouchBar(NSTouchBar *touchBar, int64_t placement) {
 }
 
 void TBRDismissSystemModalTouchBar(NSTouchBar *touchBar) {
+    TBRModalPresentationGeneration += 1;
     if (![NSTouchBar respondsToSelector:
         @selector(dismissSystemModalTouchBar:)]) {
         return;

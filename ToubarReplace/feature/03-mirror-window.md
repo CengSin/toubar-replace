@@ -24,6 +24,7 @@
   - 全屏显隐检测：`DesktopSpaceVisibilityMonitor`、`DesktopSpaceVisibilityPolicy`、`DesktopSpaceSnapshot`、`TBRGetCurrentSpaceForDisplay`（监听 `NSWorkspace.activeSpaceDidChangeNotification`，读取界面所在屏幕的当前 Space）
 - 子功能：
   - 唤醒层与捕获调度：隐藏与展开动画期间保留原场景画面，抑制唤醒层捕获；恢复正常物理控件后接入显示流
+  - 系统配置入口：状态栏菜单「Touch Bar 系统设置…」打开系统键盘设置，由系统管理触控栏显示内容、Control Strip 布局和 Fn 行为；镜像启动和捕获生命周期沿用当前系统状态
   - 物理 Touch Bar 流式镜像：通过私有 API `SLSDFRDisplayStreamCreate` 创建连续捕获流，并将画面呈现于桌面窗口
   - 显示流暂停与恢复：隐藏和睡眠时暂停图像转换与交付、清理临时图像缓存，底层捕获会话保持连接；恢复时交付最新缓存画面并继续接收更新。最新 IOSurface 通过引用与使用计数管理，替换和关闭时平衡释放
   - 显示流关闭与重连：退出应用和故障重连时真正停止底层流，接收标准 `.stopped` 或私有 DFR 的零时间戳空帧确认，等待回调退出后释放流与缓存。每条流独立校验画面回调，每次恢复独立校验启动超时，停止失败时保留该流并定时重试
@@ -34,7 +35,7 @@
   - 统一桌面玻璃：设置开启后使用同一原生圆角玻璃底板，镜像的黑色空白与圆角灰色按钮背景融入玻璃；单色符号和内部镂空恢复连续透明度，图标轮廓适配明暗外观；彩色图标边缘去除背景混色，内部深色细节保留；关闭时立即恢复最近的原始帧
   - 流畅画面更新：原生处理复用背景、图标保护和边缘缓冲区，后台队列与主线程分别合并待处理帧；图层即时换帧，缩放采样跟随当前屏幕的 backing scale
   - 原生毛玻璃工作台：`WorkspaceBarView` 沿用原生玻璃上的文字、卡片与 App 控件。有物理栏时，手指操作由物理控件处理；用量区通过 `NSView.boundsDidChangeNotification` 同步物理横滑位置，原生滚动容器即时移动已有卡片。软件回退工作台接收桌面操作
-  - Fn 功能键同步：硬件毛玻璃 Workspace 中按住 Fn，保留当前原生毛玻璃工作台，等待新的 F1～F12 等系统临时捕获完成玻璃合成后切换显示；按 `TouchBarFrameSignature` 过滤延迟和乱序的旧 Workspace 帧。松开后立即恢复原生毛玻璃工作台，保持 Workspace 场景与用量横滑状态。读取 Fn 状态随硬件工作台启停，并在睡眠时停止、唤醒时重新读取；按住 Fn 开启毛玻璃时可合成已捕获的功能键画面
+  - Fn 功能键同步：硬件毛玻璃 Workspace 中按住 Fn，保留当前原生毛玻璃工作台，等待新的 F1～F12 等系统临时捕获完成玻璃合成后切换显示；按 `TouchBarFrameSignature` 过滤延迟和乱序的旧 Workspace 帧。松开后立即恢复原生毛玻璃工作台，保持 Workspace 场景与用量横滑状态。Fn 状态在硬件会话中持续读取 `.hidSystemState`，覆盖镜像、Workspace 和隐藏唤醒层；睡眠时停止、唤醒时重新读取，松开后检查物理栏挂载；按住 Fn 开启毛玻璃时可合成已捕获的功能键画面
   - 物理视口联动：玻璃用量区按物理视口决定卡片是否溢出，并按桌面显示宽度映射横滑位置；物理栏尺寸变化、推荐排序与额度刷新同步更新。隐藏的硬件镜像保留最近原始帧，关闭毛玻璃时恢复捕获画面
   - 主题联动胶囊：全黑与毛玻璃共享配置宽高、展开淡入、手动显隐与触控唤醒行为，主题切换保留当前显隐状态
   - 平滑场景切换：玻璃 Workspace 立即显示原生工作台，返回时立即恢复最近镜像前景；真实捕获重排等待 221ms 后接入新镜像帧，并在返回后的 1 秒内按 `TouchBarFrameSignature` 排除旧 Workspace 帧；快速反向切换取消旧等待任务。全黑主题保留原始帧覆盖与 0.12s 淡出
@@ -45,5 +46,5 @@
   - 有物理 Touch Bar 机器：私有 DFR 显示流可用
   - 无物理 Touch Bar 机器：进入软件空闲说明态，引导用户打开 Workspace
 - 常见故障现象：
-  - 窗口全黑或白屏：macOS Control Strip 配置损坏或显示流断连，需在终端执行 `defaults delete com.apple.controlstrip ... && killall ControlStrip`
+  - 窗口全黑或白屏：先从「Touch Bar 系统设置…」检查触控栏内容与 Control Strip 布局；显示流断连或配置损坏时可按帮助指引在终端执行 `defaults delete com.apple.controlstrip ... && killall ControlStrip`
   - 需要查看底部内容：使用物理隐藏键或状态栏菜单隐藏界面

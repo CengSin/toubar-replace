@@ -38,14 +38,10 @@ struct TouchBarCaptureDependencies: Sendable {
     typealias EventHandler = @Sendable (CGDisplayStreamFrameStatus, IOSurfaceRef?) -> Void
 
     let makeStream: @Sendable (DispatchQueue, @escaping EventHandler) -> (any TouchBarDisplayStream)?
-    let getTouchBarStatus: @Sendable () -> Int32
-    let setTouchBarStatus: @Sendable (Int32) -> Void
     let schedule: @Sendable (DispatchQueue, DispatchTimeInterval, @escaping @Sendable () -> Void) -> Void
 
     static let live = Self(
         makeStream: { SystemTouchBarDisplayStream(queue: $0, onEvent: $1) },
-        getTouchBarStatus: { TBRGetTouchBarStatus() },
-        setTouchBarStatus: { TBRSetTouchBarStatus($0) },
         schedule: { queue, delay, work in
             queue.asyncAfter(deadline: .now() + delay, execute: work)
         }

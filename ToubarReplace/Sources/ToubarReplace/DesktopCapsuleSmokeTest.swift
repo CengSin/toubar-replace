@@ -137,7 +137,7 @@ enum DesktopCapsuleSmokeTest {
         let wake = DesktopWakeTouchBarController()
         check(wake.touchBar.defaultItemIdentifiers == [DesktopWakeTouchBarController.wakeIdentifier]
             && wake.touchBar.escapeKeyReplacementItemIdentifier == DesktopWakeTouchBarController.escapeIdentifier
-            && DesktopWakeTouchBarController.placement == 1 && DesktopWakeTouchBarController.presentationMode == "app",
+            && DesktopWakeTouchBarController.placement == 1,
             "wake mode must own one full-width item and route the Escape slot to the same wake action")
         var wakePresses = 0
         wake.onWake = { wakePresses += 1 }

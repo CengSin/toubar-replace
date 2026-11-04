@@ -7,12 +7,13 @@ final class TouchBarFunctionKeyMonitor {
     private let onChange: (Bool) -> Void
     private var timer: Timer?
     private(set) var isPressed = false
+    var onStateChanged: ((Bool) -> Void)?
 
     var isMonitoring: Bool { timer != nil }
 
     init(
         readFlags: @escaping () -> CGEventFlags = {
-            CGEventSource.flagsState(.combinedSessionState)
+            CGEventSource.flagsState(.hidSystemState)
         },
         onChange: @escaping (Bool) -> Void
     ) {
@@ -47,5 +48,6 @@ final class TouchBarFunctionKeyMonitor {
         guard self.isPressed != isPressed else { return }
         self.isPressed = isPressed
         onChange(isPressed)
+        onStateChanged?(isPressed)
     }
 }

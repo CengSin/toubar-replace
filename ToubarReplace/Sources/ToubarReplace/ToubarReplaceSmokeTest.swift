@@ -18,6 +18,27 @@ enum ToubarReplaceSmokeTest {
         failures.append(contentsOf: await DesktopThemeSmokeTest.failures())
         failures.append(contentsOf: DesktopCapsuleSmokeTest.failures())
         failures.append(contentsOf: await TouchBarCaptureSmokeTest.failures())
+        failures.append(contentsOf: await TouchBarPresentationRecoverySmokeTest.failures())
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let completion = CustomWorkspaceAppLaunchCompletion(continuation)
+                completion.finish(.failure(CustomWorkspaceAppLaunchError.timedOut))
+                completion.finish(.success(()))
+            }
+            failures.append("a stalled app launch must report its timeout")
+        } catch CustomWorkspaceAppLaunchError.timedOut {
+        } catch {
+            failures.append("app launch timeout must retain its error")
+        }
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let completion = CustomWorkspaceAppLaunchCompletion(continuation)
+                completion.finish(.success(()))
+                completion.finish(.failure(CustomWorkspaceAppLaunchError.timedOut))
+            }
+        } catch {
+            failures.append("a completed app launch must ignore a late timeout")
+        }
         let glassKey = TouchBarPreferences.glassThemeKey
         let savedGlass = UserDefaults.standard.object(forKey: glassKey)
         defer {
@@ -124,30 +145,6 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            !WorkspacePresentationInterruptionPolicy.shouldInterrupt(
-                isPresented: true,
-                hasAttachedToWindow: true,
-                isExplicitlyDismissing: false,
-                isCurrentlyAttached: false,
-                currentMode: "app",
-                workspaceMode: "app"
-            ),
-            "transient Touch Bar detachment must not reset Workspace",
-            failures: &failures
-        )
-        expect(
-            WorkspacePresentationInterruptionPolicy.shouldInterrupt(
-                isPresented: true,
-                hasAttachedToWindow: true,
-                isExplicitlyDismissing: false,
-                isCurrentlyAttached: false,
-                currentMode: "spaces",
-                workspaceMode: "app"
-            ),
-            "an external system mode change must reset Workspace",
-            failures: &failures
-        )
-        expect(
             WorkspacePresentationModePolicy.dismissalAction(
                 currentMode: "spaces",
                 workspaceMode: "app",
@@ -173,8 +170,8 @@ enum ToubarReplaceSmokeTest {
                 workspaceMode: "app",
                 previousMode: "app",
                 hadPreviousMode: true
-            ) == .remove,
-            "closing Workspace must not restore our own app mode leftover",
+            ) == .set("app"),
+            "closing Workspace must preserve the user-selected app mode",
             failures: &failures
         )
         expect(

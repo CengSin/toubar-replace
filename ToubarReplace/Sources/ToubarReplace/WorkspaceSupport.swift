@@ -361,6 +361,24 @@ enum CustomWorkspaceAppList {
     }
 }
 
+final class CustomWorkspaceAppLaunchCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(_ continuation: CheckedContinuation<Void, Error>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ result: Result<Void, Error>) {
+        let pending = lock.withLock {
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        pending?.resume(with: result)
+    }
+}
+
 enum CustomWorkspaceAppLauncher {
     @MainActor
     static func open(
@@ -411,14 +429,18 @@ enum CustomWorkspaceAppLauncher {
         configuration.activates = true
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
+            let completion = CustomWorkspaceAppLaunchCompletion(continuation)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 15) {
+                completion.finish(.failure(CustomWorkspaceAppLaunchError.timedOut))
+            }
             workspace.openApplication(
                 at: url,
                 configuration: configuration
             ) { _, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    completion.finish(.failure(error))
                 } else {
-                    continuation.resume()
+                    completion.finish(.success(()))
                 }
             }
         }
@@ -427,11 +449,14 @@ enum CustomWorkspaceAppLauncher {
 
 enum CustomWorkspaceAppLaunchError: LocalizedError {
     case applicationMissing(String)
+    case timedOut
 
     var errorDescription: String? {
         switch self {
         case let .applicationMissing(name):
             return "找不到应用「\(name)」"
+        case .timedOut:
+            return "系统在 15 秒内未完成应用切换，请重试"
         }
     }
 }

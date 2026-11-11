@@ -58,6 +58,59 @@ enum ToubarReplaceSmokeTest {
                        "theme must depend only on manual choice and OS support", failures: &failures)
             }
         }
+        let themeKey = TouchBarPreferences.desktopThemeKey
+        let savedTheme = UserDefaults.standard.object(forKey: themeKey)
+        defer {
+            if let savedTheme { UserDefaults.standard.set(savedTheme, forKey: themeKey) }
+            else { UserDefaults.standard.removeObject(forKey: themeKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: themeKey)
+        TouchBarPreferences.glassThemeEnabled = true
+        expect(TouchBarPreferences.desktopTheme == .glass,
+               "an existing glass checkbox must migrate to the glass theme", failures: &failures)
+        TouchBarPreferences.desktopTheme = .smoke
+        expect(TouchBarPreferences.desktopTheme == .smoke && !TouchBarPreferences.glassThemeEnabled,
+               "choosing smoke must persist and clear the legacy glass flag", failures: &failures)
+        for theme in DesktopTheme.allCases {
+            expect(DesktopThemePolicy.effectiveTheme(preferred: theme, supportsGlass: false)
+                   == (theme == .glass ? .black : theme)
+                   && DesktopThemePolicy.effectiveTheme(preferred: theme, supportsGlass: true) == theme,
+                   "only glass depends on OS support; smoke works everywhere", failures: &failures)
+        }
+
+        let guardSuite = "ToubarReplace.smoke.presentationModeGuard"
+        if let defaults = UserDefaults(suiteName: guardSuite) {
+            defaults.removePersistentDomain(forName: guardSuite)
+            expect(TouchBarPresentationModeGuard.beginOverride(
+                currentMode: "appWithControlStrip", overrideMode: "app", defaults: defaults) == "appWithControlStrip",
+                   "the first override must remember the user's mode", failures: &failures)
+            expect(TouchBarPresentationModeGuard.beginOverride(
+                currentMode: "app", overrideMode: "app", defaults: defaults) == "appWithControlStrip",
+                   "a leftover override from a killed run must not replace the user's mode", failures: &failures)
+            TouchBarPresentationModeGuard.endOverride(defaults: defaults)
+            expect(TouchBarPresentationModeGuard.beginOverride(
+                currentMode: nil, overrideMode: "app", defaults: defaults) == nil
+                   && TouchBarPresentationModeGuard.beginOverride(
+                       currentMode: "app", overrideMode: "app", defaults: defaults) == nil,
+                   "an absent user mode must still be restored by removal after a crash", failures: &failures)
+            TouchBarPresentationModeGuard.endOverride(defaults: defaults)
+            expect(defaults.object(forKey: TouchBarPresentationModeGuard.pendingKey) == nil,
+                   "a clean dismissal must clear the crash marker", failures: &failures)
+            defaults.removePersistentDomain(forName: guardSuite)
+        }
+
+        if let space = CGColorSpace(name: CGColorSpace.sRGB),
+           let context = CGContext(data: nil, width: 2, height: 1, bitsPerComponent: 8, bytesPerRow: 8,
+                                   space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 1, y: 0, width: 1, height: 1))
+            let keyed = context.makeImage().flatMap(MirrorSmokeFrameKeyer.keyed)
+            let bytes = (keyed?.dataProvider?.data).map { $0 as Data } ?? Data()
+            expect(bytes.count >= 8 && bytes[3] == 0 && bytes[7] == 255,
+                   "smoke keying must make black transparent and keep white opaque", failures: &failures)
+        }
         let shareKey = "ToubarReplace.workspace.quotaShare"
         let savedShare = UserDefaults.standard.object(forKey: shareKey)
         defer {

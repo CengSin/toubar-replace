@@ -26,12 +26,14 @@ protocol TouchBarDisplayStream: AnyObject, Sendable {
     func start() -> CGError
     func stop() -> CGError
     func shutdown() -> CGError
+    func abandon()
 }
 
 extension TouchBarDisplayStream {
     var stopBehavior: TouchBarDisplayStreamStopBehavior { .awaitStoppedEvent }
     var nativeStartCount: Int { 0 }
     func shutdown() -> CGError { stop() }
+    func abandon() {}
 }
 
 struct TouchBarCaptureDependencies: Sendable {
@@ -126,6 +128,13 @@ private final class SystemTouchBarDisplayStream: TouchBarDisplayStream, @uncheck
     func stop() -> CGError {
         isDelivering = false
         return .success
+    }
+
+    func abandon() {
+        isDelivering = false
+        isFinishing = true
+        latestSurface = nil
+        retainedUntilStopped = nil
     }
 
     func shutdown() -> CGError {

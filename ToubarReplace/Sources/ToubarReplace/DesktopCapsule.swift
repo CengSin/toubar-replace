@@ -120,6 +120,7 @@ final class DesktopCapsuleButton: NSView {
 final class DesktopCapsuleView: NSView {
     let content: NSView
     private let contentContainer = NSView()
+    private let smokeMaterial = DesktopSmokeMaterialView(frame: .zero)
     private(set) var isExpanded = false
     var expandedSize = DesktopCapsuleLayout.minimumSize
     var contentAcceptsMouseEvents = true
@@ -141,7 +142,17 @@ final class DesktopCapsuleView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func apply(theme: DesktopTheme) {
-        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
+        layer?.backgroundColor = (theme.usesClearBackground ? NSColor.clear : .black).cgColor
+        if theme == .smoke {
+            if smokeMaterial.superview !== self {
+                smokeMaterial.frame = bounds
+                addSubview(smokeMaterial, positioned: .below, relativeTo: contentContainer)
+            }
+        } else if smokeMaterial.superview != nil {
+            smokeMaterial.removeFromSuperview()
+        }
+        layer?.borderWidth = theme == .smoke ? 0.5 : 0
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
     }
 
     func setExpanded(_ expanded: Bool) {
@@ -157,6 +168,7 @@ final class DesktopCapsuleView: NSView {
     override func layout() {
         super.layout()
         layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        smokeMaterial.frame = bounds
         var contentFrame = DesktopCapsuleLayout.contentFrame(expandedSize: expandedSize)
         contentFrame.origin.y = bounds.midY - contentFrame.height / 2
         contentContainer.frame = contentFrame

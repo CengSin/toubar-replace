@@ -41,6 +41,22 @@ enum TouchBarPreferences {
         set { UserDefaults.standard.set(newValue, forKey: glassThemeKey) }
     }
 
+    static let desktopThemeKey = "ToubarReplace.desktopTheme"
+
+    static var desktopTheme: DesktopTheme {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: desktopThemeKey),
+               let theme = DesktopTheme(rawValue: raw) {
+                return theme
+            }
+            return glassThemeEnabled ? .glass : .black
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: desktopThemeKey)
+            glassThemeEnabled = newValue == .glass
+        }
+    }
+
     private static let positionKey = "ToubarReplace.displayPosition"
     private static let widthPixelsKey = "ToubarReplace.widthPixels"
     private static let heightPixelsKey = "ToubarReplace.heightPixels"
@@ -132,7 +148,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let originYField: NSTextField
     private let switcherDisplayModePopup: NSPopUpButton
     private let startupScenePopup: NSPopUpButton
-    private let glassThemeCheckbox = NSButton(checkboxWithTitle: "启用毛玻璃效果", target: nil, action: nil)
+    private let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let onDesktopThemeChanged: () -> Void
     private let quotaShareSlider = NSSlider(value: WorkspacePreferences.quotaShare * 100, minValue: 30, maxValue: 75, target: nil, action: nil)
     private let quotaShareLabel = NSTextField(labelWithString: "")
@@ -273,17 +289,23 @@ final class TouchBarSettingsWindowController: NSWindowController,
         widthField.toolTip = "Touch Bar 界面的宽度（像素）"
         heightField.toolTip = "Touch Bar 界面的高度（像素）"
 
-        glassThemeCheckbox.state = TouchBarPreferences.glassThemeEnabled ? .on : .off
-        glassThemeCheckbox.isEnabled = DesktopThemePolicy.supportsGlass
-        glassThemeCheckbox.identifier = NSUserInterfaceItemIdentifier("ToubarReplace.Settings.GlassTheme")
-        glassThemeCheckbox.setAccessibilityIdentifier("ToubarReplace.Settings.GlassTheme")
+        themePopup.autoenablesItems = false
+        for theme in DesktopTheme.allCases {
+            themePopup.addItem(withTitle: theme.title)
+            themePopup.lastItem?.representedObject = theme.rawValue
+            themePopup.lastItem?.isEnabled = theme != .glass || DesktopThemePolicy.supportsGlass
+        }
+        themePopup.selectItem(at: DesktopTheme.allCases.firstIndex(of: TouchBarPreferences.desktopTheme) ?? 0)
+        themePopup.toolTip = "烟晶使用静态半透明底色和单遍亮度抠像，不做实时模糊，资源占用接近经典黑"
+        themePopup.identifier = NSUserInterfaceItemIdentifier("ToubarReplace.Settings.Theme")
+        themePopup.setAccessibilityIdentifier("ToubarReplace.Settings.Theme")
         let appearanceLabel = NSTextField(labelWithString: "外观")
         appearanceLabel.widthAnchor.constraint(equalToConstant: 72).isActive = true
-        let themeRow = NSStackView(views: [appearanceLabel, glassThemeCheckbox])
+        let themeRow = NSStackView(views: [appearanceLabel, themePopup])
         themeRow.spacing = 12
         themeRow.alignment = .centerY
         if !DesktopThemePolicy.supportsGlass {
-            let hint = NSTextField(labelWithString: "需要 macOS 26 或更高版本")
+            let hint = NSTextField(labelWithString: "液态玻璃需要 macOS 26 或更高版本")
             hint.font = .systemFont(ofSize: 11)
             hint.textColor = .secondaryLabelColor
             themeRow.addArrangedSubview(hint)
@@ -460,8 +482,8 @@ final class TouchBarSettingsWindowController: NSWindowController,
 
         super.init(window: window)
         window.delegate = self
-        glassThemeCheckbox.target = self
-        glassThemeCheckbox.action = #selector(glassThemeChanged(_:))
+        themePopup.target = self
+        themePopup.action = #selector(themeChanged(_:))
         positionPopup.target = self
         quotaShareSlider.target = self
         updateQuotaShareLabel()
@@ -485,9 +507,11 @@ final class TouchBarSettingsWindowController: NSWindowController,
         reloadQuotaProviderRows(WorkspacePreferences.seenQuotaProviders)
     }
 
-    @objc private func glassThemeChanged(_ sender: NSButton) {
-        guard DesktopThemePolicy.supportsGlass else { return }
-        TouchBarPreferences.glassThemeEnabled = sender.state == .on
+    @objc private func themeChanged(_ sender: NSPopUpButton) {
+        guard let raw = sender.selectedItem?.representedObject as? String,
+              let theme = DesktopTheme(rawValue: raw),
+              theme != .glass || DesktopThemePolicy.supportsGlass else { return }
+        TouchBarPreferences.desktopTheme = theme
         onDesktopThemeChanged()
     }
 

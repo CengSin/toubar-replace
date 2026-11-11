@@ -672,6 +672,23 @@ enum DesktopThemeSmokeTest {
                   && switching.surfaceView.isHidden
                   && !switching.isWaitingForMirrorCapture && switchingCover?.isHidden == true,
                   "rapid reversal must cancel old settle work without reviving mirror icons")
+
+            let lookalike = TouchBarRootView(frame: NSRect(x: 0, y: 0, width: 500, height: 35))
+            lookalike.apply(theme: .glass)
+            lookalike.displayCapture(image: image)
+            lookalike.beginSceneTransitionCover()
+            lookalike.setScene(.workspace)
+            lookalike.displayCapture(image: workspaceCapture)
+            lookalike.beginSceneTransitionCover()
+            lookalike.setScene(.mirror)
+            lookalike.scheduleSceneTransitionCoverFade(settle: .milliseconds(10), fadeDuration: 0)
+            try? await Task.sleep(for: .milliseconds(20))
+            lookalike.displayCapture(image: workspaceCapture)
+            check(lookalike.surfaceView.latestOriginalFrame !== workspaceCapture,
+                  "the return guard must still hold back Workspace look-alike frames briefly")
+            try? await Task.sleep(for: .milliseconds(1_150))
+            check(lookalike.surfaceView.latestOriginalFrame === workspaceCapture,
+                  "the newest look-alike frame must appear once the guard expires instead of freezing the old mirror")
         }
         failures.append(contentsOf: await functionKeyFailures())
         return failures

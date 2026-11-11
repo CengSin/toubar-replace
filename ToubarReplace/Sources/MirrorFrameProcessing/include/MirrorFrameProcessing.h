@@ -17,4 +17,11 @@ bool TBRMirrorFrameProcess(
     uint8_t foreground
 );
 
+void TBRMirrorFrameApplyLuminanceAlpha(
+    uint8_t * _Nonnull pixels,
+    size_t width,
+    size_t height,
+    size_t bytesPerRow
+);
+
 #endif

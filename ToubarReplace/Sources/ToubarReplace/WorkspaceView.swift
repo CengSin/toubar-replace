@@ -354,20 +354,16 @@ final class TouchBarRootView: NSView {
         surfaceView = TouchBarSurfaceView(frame: .zero)
         workspaceView = WorkspaceBarView(frame: .zero)
         super.init(frame: frameRect)
-        autoresizingMask = [.width, .height]
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
 
-        surfaceView.autoresizingMask = [.width, .height]
         addSubview(surfaceView)
-        workspaceView.autoresizingMask = [.width, .height]
         workspaceView.isHidden = true
         addSubview(workspaceView)
 
         transitionCoverView.wantsLayer = true
         transitionCoverView.layer?.contentsGravity = .resizeAspect
         transitionCoverView.layer?.backgroundColor = NSColor.black.cgColor
-        transitionCoverView.autoresizingMask = [.width, .height]
         transitionCoverView.isHidden = true
         addSubview(transitionCoverView)
         surfaceView.onGlassFrameDisplayed = { [weak self] in
@@ -382,6 +378,11 @@ final class TouchBarRootView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
     }
 
     override func layout() {

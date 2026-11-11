@@ -141,7 +141,7 @@ final class DesktopGlassHostView: NSView {
         self.usesCapsuleShape = usesCapsuleShape
         super.init(frame: content.frame)
         autoresizingMask = [.width, .height]
-        content.autoresizingMask = [.width, .height]
+        content.autoresizingMask = []
         addSubview(content)
     }
 
@@ -154,7 +154,6 @@ final class DesktopGlassHostView: NSView {
             if glassView == nil {
                 let glass = NSGlassEffectView(frame: bounds)
                 glass.style = .clear
-                glass.autoresizingMask = [.width, .height]
                 hostedContent.removeFromSuperview()
                 glass.contentView = hostedContent
                 addSubview(glass)
@@ -170,6 +169,11 @@ final class DesktopGlassHostView: NSView {
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
     }
 
     override func layout() {

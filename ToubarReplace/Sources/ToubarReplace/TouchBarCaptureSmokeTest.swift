@@ -391,6 +391,30 @@ enum TouchBarCaptureSmokeTest {
             withExtendedLifetime(capture) {}
         }
 
+        do {
+            let probe = SmokeTouchBarCaptureProbe()
+            let capture = probe.makeCapture()
+            capture.start()
+            await probe.flush()
+            capture.restart()
+            await probe.flush()
+            expect(probe.count("stop:1") == 1 && probe.isRetained(1) && probe.creationCount == 1,
+                   "restart must wait for the old stream to confirm its stop")
+            expect(probe.fireTimer(seconds: 3), "an unconfirmed stop must arm a confirmation timeout")
+            await probe.flush()
+            expect(probe.creationCount == 2 && probe.count("start:2") == 1,
+                   "a stop that is never confirmed must not freeze capture; a replacement stream must start")
+            probe.emit(.stopped, from: 1)
+            await probe.flush()
+            expect(probe.creationCount == 2 && probe.isRetained(2),
+                   "a late stopped event from an abandoned stream must leave the replacement intact")
+            capture.stop()
+            await probe.flush()
+            probe.emit(.stopped, from: 2)
+            await probe.flush()
+            withExtendedLifetime(capture) {}
+        }
+
         return failures
     }
 }

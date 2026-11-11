@@ -15,6 +15,7 @@
   - 显示流生命周期：`TouchBarCapture`、`SystemTouchBarDisplayStream`、`RetainedTouchBarSurface`、`TouchBarStopSignalTracker`（底层捕获流保持单一会话，使用 IOSurface 引用与使用计数保留最近一帧，识别私有 DFR 的零时间戳空帧停止通知）
   - 物理用量横滑同步：`QuotaScrollState`、`WorkspaceTouchBarController.onQuotaScrollStateChanged`、`WorkspaceBarView.mirrorQuotaScrollState(_:)`（同步物理用量区视口、内容宽度与横滑位置）
   - Fn 显示同步：`TouchBarFunctionKeyMonitor`、`TouchBarRootView.setFunctionKeyPressed(_:)`、`TouchBarRootView.showsFunctionKeyCapture`、`TouchBarSurfaceView.onGlassFrameDisplayed`（读取当前 Fn 状态，等待新捕获完成玻璃合成后显示系统临时画面）
+  - 烟晶主题：`DesktopTheme.smoke`、`DesktopSmokeMaterialView`、`DesktopGradientView`、`MirrorSmokeFrameKeyer`、`TBRMirrorFrameApplyLuminanceAlpha`、`TouchBarCapture.setLuminanceKeyed(_:)`（胶囊内静态烟色渐变、顶部高光与 0.5pt 白色描边；捕获帧在拷贝时以 RGB 最大值作为预乘 alpha，黑底透明、白字不透明、灰色按钮成为淡色玻璃片；无实时模糊、无逐帧抠图，切到烟晶时一次性转换已保留帧）
   - 状态提示文本：`statusLabel`（`NSTextField`，全黑主题白字，毛玻璃主题使用自适应前景）
     - 初始状态："正在读取 Touch Bar…"
     - 无硬件状态："当前 Mac 无物理 Touch Bar\n从状态栏菜单打开 Workspace，查看额度并启动应用"
@@ -32,13 +33,15 @@
   - 手动显隐与激活：状态栏菜单或物理隐藏键通过 `orderOut` 隐藏整个窗口；Touch Bar 整条轻触唤醒，抬手和动画完成后恢复原场景操作；同一 Space 内保持手动显隐状态，全屏内可临时唤醒
   - 全屏自动显隐：进入全屏应用或分屏全屏 Space 自动隐藏，从全屏返回普通桌面、切换到其他普通桌面后自动显示当前场景；启动时按当前 Space 显隐，多屏跟随界面所在屏幕。Space 转场后分次复查，重复通知保留手动操作；唤醒与屏幕配置变化后重新检查
   - 物理场景控制：网格键进入 Workspace，下箭头隐藏界面，隐藏后物理栏恢复整条唤醒入口
+  - 低开销捕获：BGRA 显示流表面在一次加锁内完成黑屏检测并直接拷贝为 `CGImage`，不再经过 Core Image 的 GPU 回读与缓存；非 BGRA 表面回退 Core Image。捕获与玻璃处理队列按工作项释放自动释放池
+  - 停止确认超时：底层流关闭后 3 秒仍未收到停止确认时放弃该流并重建，避免镜像永久冻结在旧画面
   - 统一桌面玻璃：设置开启后使用同一原生圆角玻璃底板，镜像的黑色空白与圆角灰色按钮背景融入玻璃；单色符号和内部镂空恢复连续透明度，图标轮廓适配明暗外观；彩色图标边缘去除背景混色，内部深色细节保留；关闭时立即恢复最近的原始帧
   - 流畅画面更新：原生处理复用背景、图标保护和边缘缓冲区，后台队列与主线程分别合并待处理帧；图层即时换帧，缩放采样跟随当前屏幕的 backing scale
   - 原生毛玻璃工作台：`WorkspaceBarView` 沿用原生玻璃上的文字、卡片与 App 控件。有物理栏时，手指操作由物理控件处理；用量区通过 `NSView.boundsDidChangeNotification` 同步物理横滑位置，原生滚动容器即时移动已有卡片。软件回退工作台接收桌面操作
   - Fn 功能键同步：硬件毛玻璃 Workspace 中按住 Fn，保留当前原生毛玻璃工作台，等待新的 F1～F12 等系统临时捕获完成玻璃合成后切换显示；按 `TouchBarFrameSignature` 过滤延迟和乱序的旧 Workspace 帧。松开后立即恢复原生毛玻璃工作台，保持 Workspace 场景与用量横滑状态。Fn 状态在硬件会话中持续读取 `.hidSystemState`，覆盖镜像、Workspace 和隐藏唤醒层；睡眠时停止、唤醒时重新读取，松开后检查物理栏挂载；按住 Fn 开启毛玻璃时可合成已捕获的功能键画面
   - 物理视口联动：玻璃用量区按物理视口决定卡片是否溢出，并按桌面显示宽度映射横滑位置；物理栏尺寸变化、推荐排序与额度刷新同步更新。隐藏的硬件镜像保留最近原始帧，关闭毛玻璃时恢复捕获画面
   - 主题联动胶囊：全黑与毛玻璃共享配置宽高、展开淡入、手动显隐与触控唤醒行为，主题切换保留当前显隐状态
-  - 平滑场景切换：玻璃 Workspace 立即显示原生工作台，返回时立即恢复最近镜像前景；真实捕获重排等待 221ms 后接入新镜像帧，并在返回后的 1 秒内按 `TouchBarFrameSignature` 排除旧 Workspace 帧；快速反向切换取消旧等待任务。全黑主题保留原始帧覆盖与 0.12s 淡出
+  - 平滑场景切换：玻璃 Workspace 立即显示原生工作台，返回时立即恢复最近镜像前景；真实捕获重排等待 221ms 后接入新镜像帧，并在返回后的 1 秒内按 `TouchBarFrameSignature` 暂缓与 Workspace 相似的帧；若期间没有不同的新帧被接受，守卫到期后显示最近一帧，避免外观相近的真实镜像被丢弃而停留在进入 Workspace 前的旧画面；快速反向切换取消旧等待任务。全黑主题保留原始帧覆盖与 0.12s 淡出
   - 玻璃切换调度：进入时更新场景，延后一帧执行物理呈现；快速返回或停止时通过 Workspace 会话代次取消尚未执行的呈现任务
   - 故障提示与重置引导：画面出现黑屏或系统 Control Strip 异常时，自动展示终端恢复命令；硬件玻璃 Workspace 同样展示捕获诊断，主题重切时保留提示，收到健康原始帧后恢复原生工作台
 - 前置条件：

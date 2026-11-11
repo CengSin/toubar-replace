@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import IOSurface
+import MirrorFrameProcessing
 import OSLog
 import TouchBarPrivateAPI
 
@@ -97,6 +98,35 @@ enum TouchBarPresentationPreferences {
     }
 }
 
+enum TouchBarPresentationModeGuard {
+    static let pendingKey = "ToubarReplace.systemPresentationMode.pendingRestore"
+    static let savedModeKey = "ToubarReplace.systemPresentationMode.saved"
+
+    static func beginOverride(currentMode: String?, overrideMode: String,
+                              defaults: UserDefaults = .standard) -> String? {
+        if defaults.bool(forKey: pendingKey), currentMode == overrideMode {
+            return defaults.string(forKey: savedModeKey)
+        }
+        if let currentMode { defaults.set(currentMode, forKey: savedModeKey) }
+        else { defaults.removeObject(forKey: savedModeKey) }
+        defaults.set(true, forKey: pendingKey)
+        return currentMode
+    }
+
+    static func endOverride(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: pendingKey)
+        defaults.removeObject(forKey: savedModeKey)
+    }
+
+    static func restoreAfterUnexpectedExit(overrideMode: String, defaults: UserDefaults = .standard) {
+        guard defaults.bool(forKey: pendingKey) else { return }
+        if TouchBarPresentationPreferences.currentMode == overrideMode {
+            TouchBarPresentationPreferences.setCurrentMode(defaults.string(forKey: savedModeKey))
+        }
+        endOverride(defaults: defaults)
+    }
+}
+
 enum TouchBarSystemState {
     private static let contextualPresentationModes: Set<String> = [
         "app",
@@ -158,9 +188,18 @@ final class TouchBarCapture: @unchecked Sendable {
         var isShuttingDown = false
     }
 
+    private enum SurfaceReadout {
+        case blank
+        case image(CGImage)
+        case needsCoreImage
+    }
+
     private static let minimumBlankFrameCount = 2
     private static let minimumBlankFrameDuration: UInt64 = 500_000_000
     private static let streamStartupTimeout: DispatchTimeInterval = .seconds(5)
+    private static let stopConfirmationTimeout: DispatchTimeInterval = .seconds(3)
+    private static let bgraPixelFormat: OSType = 0x4247_5241
+    private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let logger = Logger(
         subsystem: "com.toubarreplace.app",
         category: "TouchBarDisplayStream"
@@ -185,6 +224,7 @@ final class TouchBarCapture: @unchecked Sendable {
     private var firstBlankFrameAt: UInt64?
     private var hasReceivedStreamActivity = false
     private var hasLoggedFirstFrame = false
+    private var keysLuminance = false
 
     init(
         onFrame: @escaping FrameHandler,
@@ -193,7 +233,8 @@ final class TouchBarCapture: @unchecked Sendable {
         dependencies: TouchBarCaptureDependencies = .live,
         workerQueue: DispatchQueue = DispatchQueue(
             label: "com.toubarreplace.display-stream",
-            qos: .userInteractive
+            qos: .userInteractive,
+            autoreleaseFrequency: .workItem
         )
     ) {
         self.onFrame = onFrame
@@ -250,6 +291,10 @@ final class TouchBarCapture: @unchecked Sendable {
             self.cancelRetry()
             self.stopStream(shuttingDown: true)
         }
+    }
+
+    func setLuminanceKeyed(_ enabled: Bool) {
+        workerQueue.async { [weak self] in self?.keysLuminance = enabled }
     }
 
     func restart() {
@@ -326,14 +371,7 @@ final class TouchBarCapture: @unchecked Sendable {
                 report(.invalidSurface)
                 return
             }
-            guard !isNearlyBlack(surface) else {
-                handleBlankFrame()
-                return
-            }
-
-            consecutiveBlackFrames = 0
-            firstBlankFrameAt = nil
-            convertAndDeliver(surface)
+            autoreleasepool { process(surface) }
 
         case .frameBlank:
             hasReceivedStreamActivity = true
@@ -400,11 +438,29 @@ final class TouchBarCapture: @unchecked Sendable {
         )
     }
 
-    private func convertAndDeliver(_ surface: IOSurfaceRef) {
-        guard let image = makeImage(from: surface) else {
-            report(.invalidSurface)
+    private func process(_ surface: IOSurfaceRef) {
+        let image: CGImage
+        switch readSurface(surface) {
+        case .blank:
+            handleBlankFrame()
             return
+        case let .image(copied):
+            image = copied
+        case .needsCoreImage:
+            guard let converted = makeImageWithCoreImage(from: surface) else {
+                consecutiveBlackFrames = 0
+                firstBlankFrameAt = nil
+                report(.invalidSurface)
+                return
+            }
+            image = converted
         }
+        consecutiveBlackFrames = 0
+        firstBlankFrameAt = nil
+        deliver(image)
+    }
+
+    private func deliver(_ image: CGImage) {
         lastError = nil
         lastNotice = nil
         onFrame(image)
@@ -419,40 +475,84 @@ final class TouchBarCapture: @unchecked Sendable {
         }
     }
 
-    private func makeImage(from surface: IOSurfaceRef) -> CGImage? {
-        autoreleasepool {
-            let image = CIImage(ioSurface: surface)
-            guard !image.extent.isEmpty, !image.extent.isInfinite else {
-                return nil
-            }
-            let context: CIContext
-            if let imageContext { context = imageContext }
-            else {
-                context = CIContext(options: [.cacheIntermediates: false])
-                imageContext = context
-            }
-            return context.createCGImage(image, from: image.extent)
-        }
-    }
-
-    private func isNearlyBlack(_ surface: IOSurfaceRef) -> Bool {
+    private func readSurface(_ surface: IOSurfaceRef) -> SurfaceReadout {
         var seed: UInt32 = 0
         guard IOSurfaceLock(surface, .readOnly, &seed) == kIOReturnSuccess else {
-            return false
+            return .needsCoreImage
         }
-        defer {
-            IOSurfaceUnlock(surface, .readOnly, &seed)
-        }
+        defer { IOSurfaceUnlock(surface, .readOnly, &seed) }
 
-        guard IOSurfaceGetWidth(surface) > 0, IOSurfaceGetHeight(surface) > 0 else {
-            return false
-        }
-
-        let baseAddress = IOSurfaceGetBaseAddress(surface)
         let width = IOSurfaceGetWidth(surface)
         let height = IOSurfaceGetHeight(surface)
+        guard width > 0, height > 0 else { return .needsCoreImage }
+        let baseAddress = IOSurfaceGetBaseAddress(surface)
         let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
         let bytesPerElement = max(IOSurfaceGetBytesPerElement(surface), 1)
+        if Self.isNearlyBlack(baseAddress, width: width, height: height,
+                              bytesPerRow: bytesPerRow, bytesPerElement: bytesPerElement) {
+            return .blank
+        }
+        guard IOSurfaceGetPixelFormat(surface) == Self.bgraPixelFormat, bytesPerElement == 4,
+              let image = makeImageByCopying(baseAddress, width: width, height: height,
+                                             bytesPerRow: bytesPerRow) else {
+            return .needsCoreImage
+        }
+        return .image(image)
+    }
+
+    private func makeImageByCopying(
+        _ baseAddress: UnsafeMutableRawPointer, width: Int, height: Int, bytesPerRow: Int
+    ) -> CGImage? {
+        let rowBytes = width * 4
+        let size = rowBytes * height
+        guard bytesPerRow >= rowBytes, let buffer = malloc(size) else { return nil }
+        if bytesPerRow == rowBytes {
+            memcpy(buffer, baseAddress, size)
+        } else {
+            for row in 0..<height {
+                memcpy(buffer + row * rowBytes, baseAddress + row * bytesPerRow, rowBytes)
+            }
+        }
+        let keyed = keysLuminance
+        if keyed {
+            TBRMirrorFrameApplyLuminanceAlpha(buffer.assumingMemoryBound(to: UInt8.self), width, height, rowBytes)
+        }
+        guard let provider = CGDataProvider(
+            dataInfo: nil, data: buffer, size: size,
+            releaseData: { _, data, _ in free(UnsafeMutableRawPointer(mutating: data)) }
+        ) else {
+            free(buffer)
+            return nil
+        }
+        let alpha: CGImageAlphaInfo = keyed ? .premultipliedFirst : .noneSkipFirst
+        return CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: rowBytes, space: sRGB,
+            bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | alpha.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+        )
+    }
+
+    private func makeImageWithCoreImage(from surface: IOSurfaceRef) -> CGImage? {
+        let image = CIImage(ioSurface: surface)
+        guard !image.extent.isEmpty, !image.extent.isInfinite else {
+            return nil
+        }
+        let context: CIContext
+        if let imageContext { context = imageContext }
+        else {
+            context = CIContext(options: [.cacheIntermediates: false])
+            imageContext = context
+        }
+        guard let converted = context.createCGImage(image, from: image.extent) else { return nil }
+        guard keysLuminance else { return converted }
+        return MirrorSmokeFrameKeyer.keyed(converted) ?? converted
+    }
+
+    private static func isNearlyBlack(
+        _ baseAddress: UnsafeMutableRawPointer, width: Int, height: Int,
+        bytesPerRow: Int, bytesPerElement: Int
+    ) -> Bool {
         let colorBytes = min(bytesPerElement, 3)
         let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
         let horizontalStep = max(width / 160, 1)
@@ -499,12 +599,24 @@ final class TouchBarCapture: @unchecked Sendable {
                 self.stream?.isStopping = false
                 self.stream?.isSuspended = true
                 if !stopped, !retryScheduled { startStream(generation: generation) }
+                return
             }
+            scheduleStopConfirmationTimeout(token: token)
             return
         }
         report(.streamStopFailed(result.rawValue))
         dependencies.schedule(workerQueue, .seconds(1)) { [weak self] in
             self?.requestStreamStop(token: token)
+        }
+    }
+
+    private func scheduleStopConfirmationTimeout(token: StreamToken) {
+        dependencies.schedule(workerQueue, Self.stopConfirmationTimeout) { [weak self] in
+            guard let self, let stream = self.stream, stream.token == token, stream.isStopping else { return }
+            Self.logger.error("Touch Bar display stream did not confirm stop; replacing it")
+            self.debugTrace("display stream stop unconfirmed; abandoning")
+            stream.value.abandon()
+            self.handleStoppedStream(identifier: token.identifier)
         }
     }
 

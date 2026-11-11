@@ -397,9 +397,10 @@ enum OpenUsageQuotaReader {
                     }
                 }
                 deadline.resume()
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 deadline.cancel()
-                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                try? stdout.fileHandleForReading.close()
                 if process.terminationStatus == 0, !data.isEmpty {
                     continuation.resume(returning: data)
                 } else {

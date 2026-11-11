@@ -91,7 +91,8 @@ final class MirrorGlassFramePipeline: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "com.toubarreplace.mirror-glass", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "com.toubarreplace.mirror-glass", qos: .userInteractive,
+                                      autoreleaseFrequency: .workItem)
     private let renderer = MirrorGlassFrameRenderer()
     private let onFrame: @MainActor @Sendable (CGImage, MirrorGlassFrameToken) -> Void
     private var pending: Work?
@@ -148,7 +149,8 @@ final class MirrorGlassFramePipeline: @unchecked Sendable {
             if work == nil { running = false }
             lock.unlock()
             guard let work else { return }
-            guard let frame = renderer.render(work.image, appearance: work.appearance) else { continue }
+            let rendered = autoreleasepool { renderer.render(work.image, appearance: work.appearance) }
+            guard let frame = rendered else { continue }
             scheduleDelivery(frame, token: work.token)
         }
     }

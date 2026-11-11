@@ -20,8 +20,13 @@ final class WorkspaceBarView: NSView {
 
     func apply(theme: DesktopTheme) {
         desktopTheme = theme
-        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
-        trayView.layer?.backgroundColor = (theme == .glass ? NSColor.clear : WorkspaceTouchBarStyle.trayBackground).cgColor
+        layer?.backgroundColor = (theme.usesClearBackground ? NSColor.clear : .black).cgColor
+        let trayColor: NSColor = switch theme {
+        case .glass: .clear
+        case .smoke: NSColor.white.withAlphaComponent(0.07)
+        case .black: WorkspaceTouchBarStyle.trayBackground
+        }
+        trayView.layer?.backgroundColor = trayColor.cgColor
         switcherButton.desktopTheme = theme
         collapseButton.apply(theme: theme)
         quotaPlate.setDesktopTheme(theme)
@@ -191,6 +196,9 @@ final class TouchBarRootView: NSView {
     private var functionKeyOriginalFrame: CGImage?
     private var mirrorCaptureGuardUntil: ContinuousClock.Instant?
     private var pendingMirrorCapture: CGImage?
+    private var guardedMirrorCapture: CGImage?
+    private var guardedMirrorFlushTask: Task<Void, Never>?
+    private var acceptedMirrorCaptureSinceReturn = false
     private(set) var isWaitingForMirrorCapture = false
     private(set) var scene: BarScene = .mirror
     private(set) var showsWorkspaceFallback = false
@@ -233,7 +241,12 @@ final class TouchBarRootView: NSView {
                 mirrorCaptureGuardUntil = nil
             }
             if let signature = TouchBarFrameSignature(image: image),
-               workspaceCaptureSignature.map({ signature.resembles($0) }) == true { return }
+               workspaceCaptureSignature.map({ signature.resembles($0) }) == true {
+                deferGuardedMirrorCapture(image)
+                return
+            }
+            acceptedMirrorCaptureSinceReturn = true
+            guardedMirrorCapture = nil
             if isWaitingForMirrorCapture {
                 pendingMirrorCapture = image
                 return
@@ -267,6 +280,31 @@ final class TouchBarRootView: NSView {
         mirrorReturnTask = nil
         isWaitingForMirrorCapture = false
         pendingMirrorCapture = nil
+        cancelGuardedMirrorCapture()
+    }
+
+    private func deferGuardedMirrorCapture(_ image: CGImage) {
+        guard !acceptedMirrorCaptureSinceReturn else { return }
+        guardedMirrorCapture = image
+        guard guardedMirrorFlushTask == nil else { return }
+        let deadline = mirrorCaptureGuardUntil ?? ContinuousClock.now.advanced(by: .seconds(1))
+        guardedMirrorFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(until: deadline, clock: .continuous)
+            guard !Task.isCancelled, let self else { return }
+            self.guardedMirrorFlushTask = nil
+            guard let image = self.guardedMirrorCapture,
+                  self.scene == .mirror, self.desktopTheme == .glass else { return }
+            self.guardedMirrorCapture = nil
+            self.workspaceCaptureSignature = nil
+            self.mirrorCaptureGuardUntil = nil
+            self.displayCapture(image: image)
+        }
+    }
+
+    private func cancelGuardedMirrorCapture() {
+        guardedMirrorFlushTask?.cancel()
+        guardedMirrorFlushTask = nil
+        guardedMirrorCapture = nil
     }
 
     func apply(theme: DesktopTheme) {
@@ -278,7 +316,8 @@ final class TouchBarRootView: NSView {
                 surfaceView.setRenderingEnabled(false)
             }
         }
-        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
+        layer?.backgroundColor = (theme.usesClearBackground ? NSColor.clear : .black).cgColor
+        if theme != .smoke { surfaceView.alphaValue = 1 }
         surfaceView.apply(theme: theme)
         workspaceView.apply(theme: theme)
         transitionCoverView.apply(theme: theme)
@@ -291,6 +330,7 @@ final class TouchBarRootView: NSView {
             isWaitingForMirrorCapture = false
             workspaceCaptureSignature = nil
             mirrorCaptureGuardUntil = nil
+            cancelGuardedMirrorCapture()
             if let image = pendingMirrorCapture { surfaceView.display(image: image) }
             pendingMirrorCapture = nil
             if !transitionCoverView.isHidden { updateTransitionFrame() }
@@ -346,6 +386,8 @@ final class TouchBarRootView: NSView {
         mirrorReturnTask = nil
         pendingMirrorCapture = nil
         isWaitingForMirrorCapture = false
+        cancelGuardedMirrorCapture()
+        acceptedMirrorCaptureSinceReturn = false
         if desktopTheme == .glass {
             clearSceneTransitionCover()
             if scene == .mirror {
@@ -368,6 +410,7 @@ final class TouchBarRootView: NSView {
         updateTransitionFrame()
         transitionCoverView.alphaValue = 1
         transitionCoverView.isHidden = false
+        if desktopTheme == .smoke { surfaceView.alphaValue = 0 }
         addSubview(transitionCoverView, positioned: .above, relativeTo: nil)
     }
 
@@ -384,6 +427,7 @@ final class TouchBarRootView: NSView {
         transitionCoverView.clearFrame()
         transitionOriginalFrame = nil
         transitionCoverView.alphaValue = 1
+        surfaceView.alphaValue = 1
     }
 
     func scheduleSceneTransitionCoverFade(
@@ -416,6 +460,7 @@ final class TouchBarRootView: NSView {
                     context.duration = fadeDuration
                     context.allowsImplicitAnimation = true
                     self.transitionCoverView.animator().alphaValue = 0
+                    if self.desktopTheme == .smoke { self.surfaceView.animator().alphaValue = 1 }
                 }, completionHandler: { continuation.resume() })
             }
             guard !Task.isCancelled else { return }

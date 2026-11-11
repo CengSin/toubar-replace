@@ -1521,6 +1521,9 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         customView: customAppsView
     )
     private var customApps: [CustomWorkspaceApp] = []
+    private var contentSizeConstraints: (
+        minimum: NSLayoutConstraint, preferred: NSLayoutConstraint, maximum: NSLayoutConstraint
+    )?
     private var previousPresentationMode: String?
     private var hadPreviousPresentationMode = false
     private lazy var recovery = TouchBarPresentationRecovery { [weak self] in
@@ -1597,7 +1600,10 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
             throw WorkspaceTouchBarPresentationError.unavailable
         }
 
-        let storedMode = TouchBarPresentationPreferences.currentMode
+        let storedMode = TouchBarPresentationModeGuard.beginOverride(
+            currentMode: TouchBarPresentationPreferences.currentMode,
+            overrideMode: WorkspaceTouchBarLayout.presentationMode
+        )
         hadPreviousPresentationMode = storedMode != nil
         previousPresentationMode = storedMode
         isPresented = true
@@ -1630,6 +1636,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         case .remove:
             TouchBarPresentationPreferences.setCurrentMode(nil)
         }
+        TouchBarPresentationModeGuard.endOverride()
         TBRDismissSystemModalTouchBar(touchBar)
         TBRSetSystemModalShowsCloseBoxWhenFrontMost(true)
         previousPresentationMode = nil
@@ -1654,31 +1661,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
         case ItemIdentifier.content:
             let item = NSCustomTouchBarItem(identifier: identifier)
             item.customizationLabel = "Workspace"
-            contentView.heightAnchor.constraint(
-                equalToConstant: WorkspaceTouchBarStyle.controlHeight
-            ).isActive = true
-
-
-
-            let preferredWidthValue = WorkspaceTouchBarLayout.preferredTrayWidth()
-            let minWidth = contentView.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: min(
-                    WorkspaceTouchBarLayout.minimumContentWidth,
-                    preferredWidthValue
-                )
-            )
-            minWidth.priority = .defaultHigh
-            minWidth.isActive = true
-            let preferredWidth = contentView.widthAnchor.constraint(
-                equalToConstant: preferredWidthValue
-            )
-            preferredWidth.priority = .defaultLow
-            preferredWidth.isActive = true
-            let maxWidth = contentView.widthAnchor.constraint(
-                lessThanOrEqualToConstant: preferredWidthValue
-            )
-            maxWidth.priority = .required
-            maxWidth.isActive = true
+            updateContentSizeConstraints()
             item.view = contentView
             return item
         default:
@@ -1689,6 +1672,28 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     func reconcilePresentation() {
         guard isPresented else { return }
         recovery.schedule()
+    }
+
+    private func updateContentSizeConstraints() {
+        let preferredWidthValue = WorkspaceTouchBarLayout.preferredTrayWidth()
+        let minimumWidthValue = min(WorkspaceTouchBarLayout.minimumContentWidth, preferredWidthValue)
+        if let constraints = contentSizeConstraints {
+            constraints.minimum.constant = minimumWidthValue
+            constraints.preferred.constant = preferredWidthValue
+            constraints.maximum.constant = preferredWidthValue
+            return
+        }
+        contentView.heightAnchor.constraint(
+            equalToConstant: WorkspaceTouchBarStyle.controlHeight
+        ).isActive = true
+        let minWidth = contentView.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidthValue)
+        minWidth.priority = .defaultHigh
+        let preferredWidth = contentView.widthAnchor.constraint(equalToConstant: preferredWidthValue)
+        preferredWidth.priority = .defaultLow
+        let maxWidth = contentView.widthAnchor.constraint(lessThanOrEqualToConstant: preferredWidthValue)
+        maxWidth.priority = .required
+        NSLayoutConstraint.activate([minWidth, preferredWidth, maxWidth])
+        contentSizeConstraints = (minWidth, preferredWidth, maxWidth)
     }
 
     private func handleWindowAttachmentChanged(_ attached: Bool) {

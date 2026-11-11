@@ -7,9 +7,14 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: TouchBarWindowController?
     private var statusItem: NSStatusItem?
     private var settingsWindowController: TouchBarSettingsWindowController?
+    private var terminationSignalSources: [any DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        TouchBarPresentationModeGuard.restoreAfterUnexpectedExit(
+            overrideMode: WorkspaceTouchBarLayout.presentationMode
+        )
+        installTerminationSignalHandlers()
         let controller = TouchBarWindowController()
         controller.onPixelSizeChanged = { [weak self] pixelSize in
             self?.settingsWindowController?.updatePixelSize(pixelSize)
@@ -48,6 +53,18 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         windowController?.stop()
+    }
+
+    private func installTerminationSignalHandlers() {
+        for signalNumber in [SIGTERM, SIGINT, SIGHUP] {
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler {
+                MainActor.assumeIsolated { NSApp.terminate(nil) }
+            }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

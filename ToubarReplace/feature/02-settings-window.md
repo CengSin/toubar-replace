@@ -15,7 +15,7 @@
   - Workspace 入口模式下拉框：`switcherDisplayModePopup`（`NSPopUpButton`，选项：`物理 Touch Bar`、`桌面胶囊`；按硬件自动选择，有物理栏时显示`物理 Touch Bar`，软件设备显示`桌面胶囊`）
   - 启动后进入下拉框：`startupScenePopup`（`NSPopUpButton`，选项：`Workspace`、`镜像`）
   - 窗口像素输入框：`widthField`、`heightField`（`NSTextField`，单位：`px`，默认 2300 × 70）
-  - 毛玻璃主题复选框：`glassThemeCheckbox`（标题：`启用毛玻璃效果`，Identifier / Accessibility Identifier：`ToubarReplace.Settings.GlassTheme`，偏好键：`ToubarReplace.glassThemeEnabled`）
+  - 外观主题菜单：`themePopup`（选项：`经典黑` / `烟晶（低功耗半透明）` / `液态玻璃`，Identifier / Accessibility Identifier：`ToubarReplace.Settings.Theme`，偏好键：`ToubarReplace.desktopTheme`；未保存时沿用旧键 `ToubarReplace.glassThemeEnabled`，写入时同步旧键）
   - 额度样式下拉框：`quotaDisplayStylePopup`（`NSPopUpButton`，选项：`柱状`、`数字`等）
   - 区域比例滑块：`quotaShareSlider`（`NSSlider`，范围 30~75，`accessibilityLabel: "额度区域占比"`，联动标签 `quotaShareLabel`: "额度 X% · App Y%"）
   - 用量订阅控制：
@@ -39,7 +39,7 @@
   - 用量订阅多选管理：通过复选框显式勾选要上栏展示的订阅池，支持一键全部显示/隐藏
   - 常用 App 槽位管理：从 `/Applications` 中选择常用应用固定到 Touch Bar，支持替换已有槽位与移除已固定槽位（上限 5 个，满员禁止静默挤出）
 - 前置条件：状态栏菜单或 Workspace 界面点击触发；打开时应用临时变为 Frontmost/Regular 进程，关闭后回到后台 Accessory 模式
-  - 毛玻璃开关在 macOS 26 及以上可用；旧系统显示「需要 macOS 26 或更高版本」提示并保留保存的偏好
+  - 液态玻璃选项在 macOS 26 及以上可用；旧系统禁用该项并显示「液态玻璃需要 macOS 26 或更高版本」，保存的玻璃偏好按经典黑显示。烟晶在所有支持的系统上可用
 - 常见故障现象：
   - 用量订阅为空：本地未运行 OpenUsage，或 `127.0.0.1:6736` 无法连接且未安装 CLI
   - 起始坐标不可输入：展示位置当前未选择「自定义坐标」模式，属于输入框保护状态

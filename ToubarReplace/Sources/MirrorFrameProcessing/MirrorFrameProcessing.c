@@ -258,3 +258,15 @@ bool TBRMirrorFrameProcess(TBRMirrorFrameProcessor *processor, uint8_t *rgba,
     }
     return true;
 }
+
+void TBRMirrorFrameApplyLuminanceAlpha(uint8_t *pixels, size_t width, size_t height,
+                                       size_t bytesPerRow) {
+    if (width == 0 || height == 0 || bytesPerRow < width * 4) { return; }
+    for (size_t y = 0; y < height; y++) {
+        uint8_t *pixel = pixels + y * bytesPerRow;
+        for (size_t x = 0; x < width; x++, pixel += 4) {
+            uint8_t peak = pixel[0] > pixel[1] ? pixel[0] : pixel[1];
+            pixel[3] = peak > pixel[2] ? peak : pixel[2];
+        }
+    }
+}

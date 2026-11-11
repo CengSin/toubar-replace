@@ -214,9 +214,13 @@ final class TouchBarSurfaceView: NSView {
         desktopTheme = theme
         frameGeneration &+= 1
         glassPipeline.discardPending()
-        layer?.backgroundColor = (theme == .glass ? NSColor.clear : .black).cgColor
+        layer?.backgroundColor = (theme.usesClearBackground ? NSColor.clear : .black).cgColor
         statusLabel.textColor = theme == .glass ? .labelColor : .white
         replaceFrameContents(nil)
+        if theme == .smoke, !latestFrameIsComposed, let image = latestOriginalFrame,
+           let keyed = MirrorSmokeFrameKeyer.keyed(image) {
+            latestOriginalFrame = keyed
+        }
         if let image = latestOriginalFrame { display(image: image, alreadyComposed: latestFrameIsComposed, keepsDiagnostic: true) }
     }
 
@@ -443,6 +447,7 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     func reloadDesktopTheme() {
         let theme = DesktopThemePolicy.current
         window?.backgroundColor = .clear
+        capture.setLuminanceKeyed(theme == .smoke)
         desktopHost.apply(theme: theme)
         rootView.apply(theme: theme)
         capsuleView.apply(theme: theme)

@@ -96,6 +96,36 @@ enum WorkspaceTouchBarLayout {
     }
 
 
+    static let appTileWidth: CGFloat = 40
+    static let appTileSpacing: CGFloat = 4
+    static let appSettingsWidth: CGFloat = 28
+    static let emptyAppsWidth: CGFloat = 132
+
+    static func dockNaturalWidth(appCount: Int) -> CGFloat {
+        let count = max(0, min(appCount, CustomWorkspaceAppList.maxCount))
+        guard count > 0 else { return emptyAppsWidth }
+        return CGFloat(count) * (appTileWidth + appTileSpacing) + appSettingsWidth
+    }
+
+    static func fittedZoneFrames(
+        tray: NSRect,
+        appCount: Int,
+        quotaShare: Double = WorkspacePreferences.quotaShare
+    ) -> (quota: NSRect, apps: NSRect) {
+        let capped = trayZoneFrames(tray: tray, quotaShare: quotaShare)
+        let natural = ceil(dockNaturalWidth(appCount: appCount) + zoneContentInset * 2)
+        let appsWidth = min(capped.apps.width, natural)
+        let usableWidth = max(tray.width - trayTrailingSafeInset, 0)
+        let quota = NSRect(
+            x: tray.minX,
+            y: tray.minY,
+            width: max(usableWidth - appsWidth, 0),
+            height: tray.height
+        )
+        let apps = NSRect(x: quota.maxX, y: tray.minY, width: appsWidth, height: tray.height)
+        return (quota, apps)
+    }
+
     static func trayZoneFrames(
         tray: NSRect,
         quotaShare: Double = WorkspacePreferences.quotaShare
@@ -187,49 +217,9 @@ enum WorkspaceTouchBarLayout {
     }
 
 
-    static func equalSlotWidth(
-        regionWidth: CGFloat,
-        slotCount: Int,
-        spacing: CGFloat = WorkspaceTouchBarStyle.itemSpacing
-    ) -> CGFloat {
-        let count = max(slotCount, 1)
-        let gaps = spacing * CGFloat(count - 1)
-        return max(floor((regionWidth - gaps) / CGFloat(count)), 1)
-    }
 
 
 
-    static func slotFrames(
-        in region: NSRect,
-        slotCount: Int,
-        spacing: CGFloat = WorkspaceTouchBarStyle.itemSpacing
-    ) -> [NSRect] {
-        let count = max(slotCount, 1)
-        let slotHeight = max(
-            region.height - slotVerticalInset * 2,
-            WorkspaceTouchBarStyle.controlHeight - slotVerticalInset * 2
-        )
-        let usable = NSRect(
-            x: region.minX,
-            y: region.midY - slotHeight / 2,
-            width: region.width,
-            height: slotHeight
-        )
-        let slotWidth = equalSlotWidth(
-            regionWidth: usable.width,
-            slotCount: count,
-            spacing: spacing
-        )
-        return (0..<count).map { index in
-            let x = usable.minX + CGFloat(index) * (slotWidth + spacing)
-            return NSRect(
-                x: x,
-                y: usable.minY,
-                width: slotWidth,
-                height: usable.height
-            )
-        }
-    }
 
 
     static func zoneContentRect(_ region: NSRect) -> NSRect {
@@ -339,18 +329,62 @@ enum WorkspaceTouchBarStyle {
         NSFont.systemFont(ofSize: 10, weight: .regular)
     }
 
+
+
+
+    static let paceOnPaceColor = NSColor(
+        red: 95 / 255,
+        green: 208 / 255,
+        blue: 176 / 255,
+        alpha: 1
+    )
+
+    static let paceDeficitColor = NSColor(
+        red: 255 / 255,
+        green: 111 / 255,
+        blue: 97 / 255,
+        alpha: 1
+    )
+
     @MainActor
-    static var quotaValueFont: NSFont {
-        let base = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+    static func paceColor(for metric: QuotaBarMetric, theme: DesktopTheme) -> NSColor {
+        if metric.isHighlighted { return amberAccent }
+        switch metric.pace {
+        case .surplus: return amberAccent
+        case .deficit: return paceDeficitColor
+        case .onPace: return paceOnPaceColor
+        case nil: return theme == .glass ? .labelColor : primaryTextColor
+        }
+    }
+
+    @MainActor
+    static func recommendedFill(theme: DesktopTheme) -> NSColor {
+        guard theme == .black else { return amberAccent.withAlphaComponent(0.16) }
+        return itemBackground.blended(withFraction: 0.16, of: amberAccent) ?? itemBackground
+    }
+
+    @MainActor
+    static func roundedDigitFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
         return base.fontDescriptor.withDesign(.rounded)
-            .flatMap { NSFont(descriptor: $0, size: 11) } ?? base
+            .flatMap { NSFont(descriptor: $0, size: size) } ?? base
     }
 
     @MainActor
-    static var microFont: NSFont {
-        NSFont.systemFont(ofSize: 8, weight: .medium)
+    static func compactValueText(_ text: String, size: CGFloat, color: NSColor) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: text, attributes: [
+            .font: roundedDigitFont(size: size, weight: .semibold),
+            .foregroundColor: color,
+        ])
+        let unitFont = NSFont.systemFont(ofSize: max(size * 0.75, 6), weight: .medium)
+        for (index, unit) in text.utf16.enumerated() where [37, 100, 104, 109].contains(unit) {
+            result.addAttributes([
+                .font: unitFont,
+                .foregroundColor: color.withAlphaComponent(0.65),
+            ], range: NSRange(location: index, length: 1))
+        }
+        return result
     }
-
 
     static let resetBarColor = NSColor(
         red: 120 / 255,
@@ -512,6 +546,9 @@ final class WorkspaceChromeButton: NSButton {
     var desktopTheme: DesktopTheme = .black {
         didSet { refreshChrome() }
     }
+    var isQuiet = false {
+        didSet { refreshChrome() }
+    }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureDefaults()
@@ -579,9 +616,13 @@ final class WorkspaceChromeButton: NSButton {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             DesktopThemeChrome.apply(to: layer, theme: desktopTheme,
                                     highlighted: isHighlighted, enabled: isEnabled)
+            if isQuiet && !(isHighlighted && isEnabled) {
+                layer?.backgroundColor = NSColor.clear.cgColor
+            }
         }
         if image?.isTemplate != false {
-            contentTintColor = desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
+            let tint: NSColor = desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
+            contentTintColor = isQuiet ? tint.withAlphaComponent(0.55) : tint
         }
     }
 
@@ -737,7 +778,9 @@ final class WorkspaceTouchBarContentView: NSView {
         let tray = WorkspaceTouchBarLayout.trayFrame(in: bounds)
         collapseButton.frame = WorkspaceTouchBarLayout.collapseFrame(in: bounds)
         trayView.frame = tray
-        let zones = WorkspaceTouchBarLayout.trayZoneFrames(tray: tray)
+        let zones = (customView as? WorkspaceCustomAppsView).map {
+            WorkspaceTouchBarLayout.fittedZoneFrames(tray: tray, appCount: $0.appCount)
+        } ?? WorkspaceTouchBarLayout.trayZoneFrames(tray: tray)
 
         let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(zones.quota)
         let plateHeight = max(
@@ -783,16 +826,20 @@ final class WorkspaceTouchBarContentView: NSView {
 final class WorkspaceCustomAppsView: NSView {
     private let emptyButton = WorkspaceChromeButton()
     private let settingsButton = WorkspaceChromeButton()
-    private var iconButtons: [WorkspaceChromeButton] = []
+    private var iconButtons: [WorkspaceAppTileButton] = []
     private var apps: [CustomWorkspaceApp] = []
     private var slotViews: [NSView] = []
     private var desktopTheme: DesktopTheme = .black
+    private var quotaState = QuotaBoardState.empty
+
+    var appCount: Int { apps.count }
 
     func setDesktopTheme(_ theme: DesktopTheme) {
         desktopTheme = theme
-        ([emptyButton, settingsButton] + iconButtons).forEach { $0.desktopTheme = theme }
+        emptyButton.desktopTheme = theme
+        settingsButton.desktopTheme = theme
+        iconButtons.forEach { $0.desktopTheme = theme }
     }
-
 
     var onOpenSettings: (() -> Void)?
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)?
@@ -802,7 +849,7 @@ final class WorkspaceCustomAppsView: NSView {
         wantsLayer = true
 
         emptyButton.configureTitleChrome(
-            title: "自定义app",
+            title: "＋ 添加常用 App",
             toolTip: "打开设置，管理常用应用（最多 5 个）"
         )
         emptyButton.target = self
@@ -815,16 +862,31 @@ final class WorkspaceCustomAppsView: NSView {
         )
         settingsButton.image = NSImage(
             systemSymbolName: "gearshape",
-            accessibilityDescription: "设置自定义 App"
+            accessibilityDescription: "管理常用应用"
         )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+            NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         )
         settingsButton.imagePosition = .imageOnly
         settingsButton.imageScaling = .scaleProportionallyDown
-        settingsButton.contentTintColor = WorkspaceTouchBarStyle.primaryTextColor
+        settingsButton.setAccessibilityLabel("管理常用应用")
+        settingsButton.isQuiet = true
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
         addSubview(settingsButton)
+
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+            NSWorkspace.didActivateApplicationNotification,
+        ] {
+            center.addObserver(
+                self,
+                selector: #selector(runningApplicationsChanged(_:)),
+                name: name,
+                object: nil
+            )
+        }
 
         display(apps: WorkspacePreferences.customApps)
     }
@@ -848,19 +910,32 @@ final class WorkspaceCustomAppsView: NSView {
         } else {
             emptyButton.isHidden = true
             settingsButton.isHidden = false
-            var views: [NSView] = []
             for (index, app) in self.apps.enumerated() {
                 let button = makeAppButton(app: app, index: index)
                 addSubview(button)
                 iconButtons.append(button)
-                views.append(button)
             }
+            var views: [NSView] = iconButtons
             views.append(settingsButton)
             slotViews = views
         }
+        refreshRunningState()
+        applyQuotaBadges()
         needsLayout = true
         superview?.needsLayout = true
         setDesktopTheme(desktopTheme)
+    }
+
+    func showQuota(_ state: QuotaBoardState) {
+        guard quotaState != state else { return }
+        quotaState = state
+        applyQuotaBadges()
+    }
+
+    func playLaunchFeedback(for app: CustomWorkspaceApp) {
+        guard let index = apps.firstIndex(where: { $0.applicationPath == app.applicationPath }),
+              iconButtons.indices.contains(index) else { return }
+        iconButtons[index].playLaunchFeedback()
     }
 
     var slotFramesForValidation: [NSRect] { slotViews.map(\.frame) }
@@ -869,35 +944,86 @@ final class WorkspaceCustomAppsView: NSView {
         settingsButton.isHidden ? .zero : settingsButton.frame
     }
 
-
-
-    func layoutEqualSlots(in region: NSRect) {
-        guard region.width > 1, region.height > 1, !slotViews.isEmpty else {
+    func layoutDock(in region: NSRect) {
+        guard region.width > 1, region.height > 1 else { return }
+        let height = max(min(region.height, WorkspaceTouchBarStyle.controlHeight - 4), 1)
+        let y = floor(region.midY - height / 2)
+        if apps.isEmpty {
+            emptyButton.frame = NSRect(x: region.minX, y: y, width: region.width, height: height)
             return
         }
-        let slots = WorkspaceTouchBarLayout.slotFrames(
-            in: region,
-            slotCount: slotViews.count
+        let spacing = WorkspaceTouchBarLayout.appTileSpacing
+        let gearWidth = min(WorkspaceTouchBarLayout.appSettingsWidth, region.width)
+        let count = CGFloat(iconButtons.count)
+        let available = region.width - gearWidth - spacing * count
+        let tileWidth = max(
+            min(WorkspaceTouchBarLayout.appTileWidth, floor(available / max(count, 1))),
+            1
         )
-        for (index, view) in slotViews.enumerated() where index < slots.count {
-            view.frame = slots[index]
+        var x = region.minX
+        for tile in iconButtons {
+            tile.frame = NSRect(x: x, y: y, width: tileWidth, height: height)
+            x += tileWidth + spacing
         }
+        settingsButton.frame = NSRect(
+            x: min(x, region.maxX - gearWidth),
+            y: y,
+            width: gearWidth,
+            height: height
+        )
     }
 
     override func layout() {
         super.layout()
-        layoutEqualSlots(in: bounds)
+        layoutDock(in: bounds)
+    }
+
+    @objc private func runningApplicationsChanged(_ notification: Notification) {
+        refreshRunningState()
+    }
+
+    private func refreshRunningState() {
+        guard !iconButtons.isEmpty else { return }
+        let workspace = NSWorkspace.shared
+        let running = workspace.runningApplications
+        let frontmost = workspace.frontmostApplication?.processIdentifier
+        for (index, tile) in iconButtons.enumerated() where apps.indices.contains(index) {
+            let match = running.first { Self.matches(apps[index], running: $0) }
+            tile.isRunning = match != nil
+            tile.isFrontmost = match != nil && match?.processIdentifier == frontmost
+        }
+    }
+
+    private static func matches(_ app: CustomWorkspaceApp, running: NSRunningApplication) -> Bool {
+        if let identifier = app.bundleIdentifier, running.bundleIdentifier == identifier {
+            return true
+        }
+        guard let url = running.bundleURL else { return false }
+        return url.standardizedFileURL.path
+            == URL(fileURLWithPath: app.applicationPath).standardizedFileURL.path
+    }
+
+    private func applyQuotaBadges() {
+        var badges: [String: QuotaBarMetric] = [:]
+        for group in quotaState.groups where group.balance == nil {
+            let metric = group.weekly.isAvailable ? group.weekly : group.fiveHour
+            guard metric.isAvailable,
+                  let app = QuotaProviderLaunch.matchingCustomApp(provider: group.provider, apps: apps),
+                  badges[app.applicationPath] == nil else { continue }
+            badges[app.applicationPath] = metric
+        }
+        for (index, tile) in iconButtons.enumerated() where apps.indices.contains(index) {
+            tile.quotaBadge = badges[apps[index].applicationPath]
+        }
     }
 
     private func makeAppButton(
         app: CustomWorkspaceApp,
         index: Int
-    ) -> WorkspaceChromeButton {
-        let button = WorkspaceChromeButton()
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyDown
-        button.image = WorkspaceTouchBarStyle.customAppIcon(for: app)
-        button.contentTintColor = nil
+    ) -> WorkspaceAppTileButton {
+        let button = WorkspaceAppTileButton()
+        button.icon = WorkspaceTouchBarStyle.customAppIcon(for: app)
+        button.desktopTheme = desktopTheme
         button.toolTip = "打开 \(app.displayName)"
         button.setAccessibilityLabel(app.displayName)
         button.tag = index
@@ -912,55 +1038,40 @@ final class WorkspaceCustomAppsView: NSView {
 
     @objc private func openCustomApp(_ sender: NSButton) {
         guard apps.indices.contains(sender.tag) else { return }
+        (sender as? WorkspaceAppTileButton)?.playLaunchFeedback()
         onOpenCustomApp?(apps[sender.tag])
     }
 }
 
-
 @MainActor
-final class QuotaVerticalBarView: NSView {
-    var desktopTheme: DesktopTheme = .black
-    private let track = NSView()
-    private let fill = NSView()
-    private let valueLabel = NSTextField(labelWithString: "")
-    private let caption = NSTextField(labelWithString: "")
-    private var metric = QuotaBarMetric(
-        ratio: nil,
-        caption: "",
-        valueText: "—",
-        isHighlighted: false
-    )
-    private var fillColor = NSColor.white
-    private var style: QuotaMetricDisplayStyle = .bars
+final class WorkspaceAppTileButton: NSButton {
+    var desktopTheme: DesktopTheme = .black {
+        didSet { if oldValue != desktopTheme { needsDisplay = true } }
+    }
+    var icon: NSImage? {
+        didSet { needsDisplay = true }
+    }
+    var isRunning = false {
+        didSet { if oldValue != isRunning { needsDisplay = true } }
+    }
+    var isFrontmost = false {
+        didSet { if oldValue != isFrontmost { needsDisplay = true } }
+    }
+    var quotaBadge: QuotaBarMetric? {
+        didSet { if oldValue != quotaBadge { needsDisplay = true } }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        track.wantsLayer = true
-        track.layer?.cornerRadius = 2
-        track.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        addSubview(track)
-        fill.wantsLayer = true
-        fill.layer?.cornerRadius = 2
-        track.addSubview(fill)
-        valueLabel.font = WorkspaceTouchBarStyle.quotaValueFont
-        valueLabel.textColor = WorkspaceTouchBarStyle.primaryTextColor
-        valueLabel.isBezeled = false
-        valueLabel.drawsBackground = false
-        valueLabel.isEditable = false
-        valueLabel.isSelectable = false
-        valueLabel.alignment = .center
-        valueLabel.lineBreakMode = .byClipping
-        valueLabel.isHidden = true
-        addSubview(valueLabel)
-        caption.font = WorkspaceTouchBarStyle.microFont
-        caption.textColor = WorkspaceTouchBarStyle.secondaryTextColor
-        caption.isBezeled = false
-        caption.drawsBackground = false
-        caption.isEditable = false
-        caption.isSelectable = false
-        caption.alignment = .center
-        caption.lineBreakMode = .byClipping
-        addSubview(caption)
+        isBordered = false
+        title = ""
+        imagePosition = .noImage
+        setButtonType(.momentaryChange)
+        wantsLayer = true
+    }
+
+    convenience init() {
+        self.init(frame: .zero)
     }
 
     @available(*, unavailable)
@@ -968,100 +1079,273 @@ final class QuotaVerticalBarView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func display(
-        _ metric: QuotaBarMetric,
-        fillColor: NSColor,
-        style: QuotaMetricDisplayStyle = .bars,
-        textColor: NSColor? = nil
-    ) {
-        self.metric = metric
-        self.fillColor = fillColor
-        self.style = style
-        caption.stringValue = metric.caption
-        track.layer?.backgroundColor = (desktopTheme == .glass ? NSColor.labelColor : .white)
-            .withAlphaComponent(0.14).cgColor
-        caption.textColor = metric.isHighlighted
-            ? WorkspaceTouchBarStyle.amberAccent
-            : (desktopTheme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor)
-        valueLabel.stringValue = metric.valueText
-        valueLabel.textColor = metric.isHighlighted
-            ? WorkspaceTouchBarStyle.amberAccent
-            : (metric.valueText != "—" ? (textColor ?? fillColor)
-               : (desktopTheme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor))
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let text = NSMutableAttributedString(string: metric.valueText, attributes: [
-            .paragraphStyle: paragraph,
-            .font: WorkspaceTouchBarStyle.quotaValueFont,
-            .foregroundColor: valueLabel.textColor ?? .white,
-        ])
-        for (index, character) in metric.valueText.utf16.enumerated() {
-            if character == 37 || character == 100 || character == 104 || character == 109 {
-                text.addAttributes([
-                    .font: NSFont.systemFont(ofSize: 9, weight: .regular),
-                    .foregroundColor: (valueLabel.textColor ?? .white).withAlphaComponent(0.7),
-                ], range: NSRange(location: index, length: 1))
-            }
-        }
-        valueLabel.attributedStringValue = text
-        fill.layer?.backgroundColor = fillColor.cgColor
-        let showBars = style == .bars
-        track.isHidden = !showBars
-        fill.isHidden = !showBars
-        valueLabel.isHidden = showBars
-        needsLayout = true
+    override var isFlipped: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override var isHighlighted: Bool {
+        didSet { needsDisplay = true }
     }
 
-    override func layout() {
-        super.layout()
-        let scale = window?.backingScaleFactor
-            ?? NSScreen.main?.backingScaleFactor
-            ?? 2
-        track.layer?.contentsScale = scale
-        fill.layer?.contentsScale = scale
-        guard bounds.width > 1, bounds.height > 1 else { return }
+    override func highlight(_ flag: Bool) {
+        super.highlight(flag)
+        needsDisplay = true
+    }
 
-        let captionHeight: CGFloat = 10
-        caption.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: bounds.width,
-            height: captionHeight
+    override func draw(_ dirtyRect: NSRect) {
+        let foreground = desktopTheme == .glass
+            ? NSColor.labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        if isHighlighted || isFrontmost {
+            foreground.withAlphaComponent(isHighlighted ? 0.2 : 0.09).setFill()
+            NSBezierPath(
+                roundedRect: bounds,
+                xRadius: WorkspaceTouchBarStyle.cornerRadius,
+                yRadius: WorkspaceTouchBarStyle.cornerRadius
+            ).fill()
+        }
+        let iconSide = max(min(20, bounds.height - 6, bounds.width - 4), 1)
+        let iconRect = NSRect(
+            x: floor(bounds.midX - iconSide / 2),
+            y: max(floor((bounds.height - iconSide - 4) / 2), 0),
+            width: iconSide,
+            height: iconSide
         )
-        if style == .percent {
-            valueLabel.frame = NSRect(
-                x: 0,
-                y: captionHeight,
-                width: bounds.width,
-                height: max(bounds.height - captionHeight, 12)
+        icon?.draw(
+            in: iconRect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: isEnabled ? 1 : 0.5,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        if isRunning {
+            foreground.withAlphaComponent(0.78).setFill()
+            NSBezierPath(ovalIn: NSRect(
+                x: bounds.midX - 1.5,
+                y: min(iconRect.maxY + 1.5, bounds.maxY - 3),
+                width: 3,
+                height: 3
+            )).fill()
+        }
+        if let badge = quotaBadge, let ratio = badge.ratio {
+            let rect = NSRect(x: iconRect.maxX - 5, y: iconRect.maxY - 8, width: 9, height: 9)
+            (desktopTheme == .black ? NSColor.black : NSColor.black.withAlphaComponent(0.55)).setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: -1.5, dy: -1.5)).fill()
+            foreground.withAlphaComponent(0.25).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let center = NSPoint(x: rect.midX, y: rect.midY)
+            let wedge = NSBezierPath()
+            wedge.move(to: center)
+            wedge.appendArc(
+                withCenter: center,
+                radius: rect.width / 2,
+                startAngle: -90,
+                endAngle: -90 + 360 * CGFloat(min(max(ratio, 0), 1)),
+                clockwise: false
             )
-            return
+            wedge.close()
+            WorkspaceTouchBarStyle.paceColor(for: badge, theme: desktopTheme).setFill()
+            wedge.fill()
         }
+    }
 
-        let trackWidth: CGFloat = min(max(floor(bounds.width * 0.42), 6), 10)
-        let trackHeight = max(bounds.height - captionHeight - 1, 8)
-        let trackX = floor((bounds.width - trackWidth) / 2)
-        track.frame = NSRect(
-            x: trackX,
-            y: captionHeight,
-            width: trackWidth,
-            height: trackHeight
-        )
-        let ratio = CGFloat(min(max(metric.ratio ?? 0, 0), 1))
-        let fillHeight: CGFloat
-        if metric.ratio == nil {
-            fillHeight = 2
-            fill.alphaValue = 0.28
-        } else {
-            fillHeight = max(floor(trackHeight * ratio), 2)
-            fill.alphaValue = 1
+    func playLaunchFeedback() {
+        guard let layer, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        func scaled(_ scale: CGFloat) -> NSValue {
+            var transform = CATransform3DMakeTranslation(center.x, center.y, 0)
+            transform = CATransform3DScale(transform, scale, scale, 1)
+            transform = CATransform3DTranslate(transform, -center.x, -center.y, 0)
+            return NSValue(caTransform3D: transform)
         }
-        fill.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: trackWidth,
-            height: fillHeight
-        )
+        let animation = CAKeyframeAnimation(keyPath: "transform")
+        animation.values = [scaled(1), scaled(0.84), scaled(1.05), scaled(1)]
+        animation.keyTimes = [0, 0.3, 0.7, 1]
+        animation.duration = 0.36
+        layer.add(animation, forKey: "launch")
+    }
+}
+
+@MainActor
+final class QuotaResetRingView: NSView {
+    var progress: Double? {
+        didSet { if oldValue != progress { needsDisplay = true } }
+    }
+    var showsBadge = false {
+        didSet { if oldValue != showsBadge { needsDisplay = true } }
+    }
+    var desktopTheme: DesktopTheme = .black {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let foreground = desktopTheme == .glass
+            ? NSColor.labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        let radius = min(bounds.width, bounds.height) / 2 - 1
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        let track = NSBezierPath(ovalIn: NSRect(
+            x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2
+        ))
+        track.lineWidth = 1.6
+        foreground.withAlphaComponent(progress == nil ? 0.08 : 0.14).setStroke()
+        track.stroke()
+        if let progress, progress > 0 {
+            let arc = NSBezierPath()
+            arc.appendArc(
+                withCenter: center,
+                radius: radius,
+                startAngle: -90,
+                endAngle: -90 + 360 * CGFloat(min(progress, 1)),
+                clockwise: false
+            )
+            arc.lineWidth = 1.6
+            arc.lineCapStyle = .round
+            WorkspaceTouchBarStyle.resetBarColor.setStroke()
+            arc.stroke()
+        }
+        if showsBadge {
+            let badge = NSRect(x: bounds.maxX - 6, y: bounds.minY, width: 6, height: 6)
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: badge.insetBy(dx: -1, dy: -1)).fill()
+            WorkspaceTouchBarStyle.amberAccent.setFill()
+            NSBezierPath(ovalIn: badge).fill()
+        }
+    }
+}
+
+@MainActor
+final class QuotaPaceRowView: NSView {
+    static let captionWidth: CGFloat = 10
+    static let valueWidth: CGFloat = 24
+
+    var metric = QuotaBarMetric(ratio: nil, caption: "", valueText: "—", isHighlighted: false) {
+        didSet { if oldValue != metric { needsDisplay = true } }
+    }
+    var desktopTheme: DesktopTheme = .black {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let foreground = desktopTheme == .glass
+            ? NSColor.labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        let secondary = desktopTheme == .glass
+            ? NSColor.secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor
+        let midY = bounds.midY
+
+        let caption = NSAttributedString(string: metric.caption, attributes: [
+            .font: NSFont.systemFont(ofSize: 8, weight: .medium),
+            .foregroundColor: metric.isHighlighted ? WorkspaceTouchBarStyle.amberAccent : secondary,
+        ])
+        caption.draw(at: NSPoint(x: 0, y: floor(midY - caption.size().height / 2)))
+
+        let valueColor: NSColor
+        if metric.ratio == nil {
+            valueColor = secondary
+        } else if metric.isHighlighted || metric.pace == .surplus {
+            valueColor = WorkspaceTouchBarStyle.amberAccent
+        } else if metric.pace == .deficit {
+            valueColor = WorkspaceTouchBarStyle.paceDeficitColor
+        } else {
+            valueColor = foreground
+        }
+        let value = WorkspaceTouchBarStyle.compactValueText(metric.valueText, size: 10, color: valueColor)
+        let valueSize = value.size()
+        value.draw(at: NSPoint(x: bounds.maxX - valueSize.width, y: floor(midY - valueSize.height / 2)))
+
+        let trackX = Self.captionWidth + 3
+        let trackWidth = max(bounds.width - trackX - 3 - Self.valueWidth, 4)
+        let track = NSRect(x: trackX, y: midY - 1.5, width: trackWidth, height: 3)
+        foreground.withAlphaComponent(0.13).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
+        guard let ratio = metric.ratio else { return }
+        let fillWidth = ratio > 0 ? max(trackWidth * CGFloat(min(ratio, 1)), 2) : 0
+        if fillWidth > 0 {
+            WorkspaceTouchBarStyle.paceColor(for: metric, theme: desktopTheme).setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: trackX, y: track.minY, width: fillWidth, height: 3),
+                xRadius: 1.5,
+                yRadius: 1.5
+            ).fill()
+        }
+        if let expected = metric.expectedRatio {
+            let x = round(trackX + trackWidth * CGFloat(min(max(expected, 0), 1)))
+            foreground.withAlphaComponent(0.85).setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: x - 0.5, y: midY - 3.5, width: 1, height: 7),
+                xRadius: 0.5,
+                yRadius: 0.5
+            ).fill()
+        }
+    }
+}
+
+@MainActor
+final class QuotaStackedTextView: NSView {
+    enum Arrangement {
+        case stacked
+        case leading
+        case inline
+    }
+
+    var arrangement: Arrangement = .stacked {
+        didSet { needsDisplay = true }
+    }
+    var primary = "" {
+        didSet { if oldValue != primary { needsDisplay = true } }
+    }
+    var secondary = "" {
+        didSet { if oldValue != secondary { needsDisplay = true } }
+    }
+    var primarySize: CGFloat = 10 {
+        didSet { needsDisplay = true }
+    }
+    var primaryColor: NSColor = WorkspaceTouchBarStyle.primaryTextColor {
+        didSet { needsDisplay = true }
+    }
+    var secondaryColor: NSColor = WorkspaceTouchBarStyle.secondaryTextColor {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let main = WorkspaceTouchBarStyle.compactValueText(primary, size: primarySize, color: primaryColor)
+        let detail = NSAttributedString(string: secondary, attributes: [
+            .font: NSFont.systemFont(ofSize: 7.5, weight: .medium),
+            .foregroundColor: secondaryColor,
+        ])
+        let mainSize = main.size()
+        let detailSize = secondary.isEmpty ? CGSize.zero : detail.size()
+        switch arrangement {
+        case .inline:
+            let height = max(mainSize.height, detailSize.height)
+            let y = bounds.midY - height / 2
+            detail.draw(at: NSPoint(x: 0, y: floor(y + (height - detailSize.height) / 2)))
+            let x = secondary.isEmpty ? 0 : detailSize.width + 3
+            main.draw(at: NSPoint(x: x, y: floor(y + (height - mainSize.height) / 2)))
+        case .stacked, .leading:
+            let gap: CGFloat = secondary.isEmpty ? 0 : -2
+            let total = mainSize.height + detailSize.height + gap
+            let top = floor(bounds.midY - total / 2)
+            let centered = arrangement == .stacked
+            main.draw(at: NSPoint(x: centered ? floor(bounds.midX - mainSize.width / 2) : 0, y: top))
+            if !secondary.isEmpty {
+                detail.draw(at: NSPoint(
+                    x: centered ? floor(bounds.midX - detailSize.width / 2) : 0,
+                    y: top + mainSize.height + gap
+                ))
+            }
+        }
     }
 }
 
@@ -1070,9 +1354,6 @@ final class QuotaProviderGroupView: NSView {
     var desktopTheme: DesktopTheme = .black {
         didSet {
             guard oldValue != desktopTheme else { return }
-            fiveHourBar.desktopTheme = desktopTheme
-            weeklyBar.desktopTheme = desktopTheme
-            resetBar.desktopTheme = desktopTheme
             effectiveAppearance.performAsCurrentDrawingAppearance {
                 if let state { display(state) }
                 else { refreshChrome() }
@@ -1087,11 +1368,15 @@ final class QuotaProviderGroupView: NSView {
             else { refreshChrome() }
         }
     }
+
+    private let ringView = QuotaResetRingView()
     private let iconView = NSImageView()
-    private let fiveHourBar = QuotaVerticalBarView()
-    private let weeklyBar = QuotaVerticalBarView()
-    private let resetBar = QuotaVerticalBarView()
+    private let fiveHourRow = QuotaPaceRowView()
+    private let weeklyRow = QuotaPaceRowView()
+    private let resetText = QuotaStackedTextView()
+    private let detailText = QuotaStackedTextView()
     private(set) var state: QuotaProviderGroupState?
+    var onActivate: ((QuotaProviderID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1102,14 +1387,19 @@ final class QuotaProviderGroupView: NSView {
             highlighted: false,
             enabled: true
         )
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.contentTintColor = WorkspaceTouchBarStyle.primaryTextColor
-        addSubview(iconView)
-        addSubview(fiveHourBar)
-        addSubview(weeklyBar)
-        addSubview(resetBar)
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.wantsLayer = true
+        iconView.layer?.cornerRadius = 3.5
+        iconView.layer?.masksToBounds = true
+        resetText.arrangement = .stacked
+        for view in [ringView, iconView, fiveHourRow, weeklyRow, resetText, detailText] {
+            addSubview(view)
+        }
+        let click = NSClickGestureRecognizer(target: self, action: #selector(activate))
+        click.allowedTouchTypes = [.direct, .indirect]
+        addGestureRecognizer(click)
         setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        setAccessibilityRole(.button)
     }
 
     @available(*, unavailable)
@@ -1117,52 +1407,70 @@ final class QuotaProviderGroupView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var isFlipped: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        frame.contains(point) ? self : nil
+    }
+
     func display(_ state: QuotaProviderGroupState) {
         self.state = state
+        let foreground = desktopTheme == .glass
+            ? NSColor.labelColor : WorkspaceTouchBarStyle.primaryTextColor
+        let secondary = desktopTheme == .glass
+            ? NSColor.secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor
         iconView.image = WorkspaceTouchBarStyle.providerIcon(
             for: state.provider,
-            foregroundColor: desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
+            foregroundColor: foreground
         )
-        iconView.contentTintColor = desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
-        let style = WorkspacePreferences.quotaMetricDisplayStyle
-        weeklyBar.isHidden = false
-        resetBar.isHidden = state.balance != nil
+        iconView.contentTintColor = foreground
+        ringView.desktopTheme = desktopTheme
+        ringView.showsBadge = state.isRecommended
+        for view in [fiveHourRow, weeklyRow] { view.desktopTheme = desktopTheme }
+        for view in [resetText, detailText] {
+            view.primaryColor = foreground
+            view.secondaryColor = secondary
+        }
+        toolTip = state.tooltip
+
         if let balance = state.balance {
-            fiveHourBar.isHidden = true
-            weeklyBar.display(QuotaBarMetric(ratio: nil, caption: balance.caption,
-                                             valueText: balance.valueText, isHighlighted: false),
-                              fillColor: WorkspaceTouchBarStyle.resetBarColor, style: .percent)
-            toolTip = state.tooltip
+            ringView.progress = nil
+            fiveHourRow.isHidden = true
+            weeklyRow.isHidden = true
+            resetText.isHidden = true
+            detailText.isHidden = false
+            detailText.arrangement = .leading
+            detailText.primarySize = 11.5
+            detailText.primary = balance.valueText
+            detailText.secondary = balance.caption
             setAccessibilityLabel("\(state.title) 额度，\(balance.caption) \(balance.valueText)")
             refreshChrome()
             needsLayout = true
             return
         }
 
-        fiveHourBar.isHidden = !state.fiveHour.isAvailable
+        ringView.progress = state.reset.ratio
+        fiveHourRow.isHidden = !state.fiveHour.isAvailable
+        fiveHourRow.metric = state.fiveHour
+        weeklyRow.isHidden = false
+        weeklyRow.metric = state.weekly
         if state.fiveHour.isAvailable {
-            fiveHourBar.display(
-                state.fiveHour,
-                fillColor: state.fiveHour.isHighlighted
-                    ? WorkspaceTouchBarStyle.amberAccent
-                    : (desktopTheme == .glass ? .labelColor : .white),
-                style: style
-            )
+            let parts = QuotaDisplayFormatting.countdownParts(state.reset.valueText)
+            resetText.isHidden = false
+            detailText.isHidden = true
+            resetText.primarySize = 10
+            resetText.primary = parts.major
+            resetText.secondary = parts.minor
+        } else {
+            resetText.isHidden = true
+            detailText.isHidden = false
+            detailText.arrangement = .inline
+            detailText.primarySize = 9
+            detailText.primary = state.reset.valueText
+            detailText.secondary = "重置"
         }
-        weeklyBar.display(
-            state.weekly,
-            fillColor: state.weekly.isHighlighted
-                ? WorkspaceTouchBarStyle.amberAccent
-                : (desktopTheme == .glass ? .labelColor : .white),
-            style: style
-        )
-        resetBar.display(
-            state.reset,
-            fillColor: WorkspaceTouchBarStyle.resetBarColor,
-            style: style,
-            textColor: desktopTheme == .glass ? .labelColor : WorkspaceTouchBarStyle.primaryTextColor
-        )
-        toolTip = state.tooltip
         setAccessibilityLabel("\(state.title) 额度")
         refreshChrome()
         needsLayout = true
@@ -1176,71 +1484,89 @@ final class QuotaProviderGroupView: NSView {
         layer?.contentsScale = scale
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        let pad: CGFloat = 5
-        let iconSize = min(WorkspaceTouchBarStyle.agentIconSize - 4, bounds.height - 8)
-        iconView.frame = NSRect(
-            x: pad,
-            y: floor((bounds.height - iconSize) / 2),
-            width: iconSize,
-            height: iconSize
+        let padding: CGFloat = 4
+        let gap: CGFloat = 5
+        let ringSide = max(min(22, bounds.height - 2), 1)
+        ringView.frame = NSRect(
+            x: padding,
+            y: floor((bounds.height - ringSide) / 2),
+            width: ringSide,
+            height: ringSide
         )
-        let barsX = iconView.frame.maxX + 4
-        let barsWidth = max(bounds.width - barsX - 4, 24)
-        let showFiveHour = state?.fiveHour.isAvailable == true
-        let barCount: CGFloat = showFiveHour ? 3 : 2
-        let barWidth = floor(barsWidth / barCount)
-        let barHeight = max(bounds.height - 4, 16)
-        let barY = floor((bounds.height - barHeight) / 2)
+        let iconInset = min(4, ringSide / 4)
+        iconView.frame = ringView.frame.insetBy(dx: iconInset, dy: iconInset)
+        let contentX = ringView.frame.maxX + gap
+        let trailing: CGFloat = 5
+
         if state?.balance != nil {
-            fiveHourBar.frame = .zero
-            resetBar.frame = .zero
-            weeklyBar.frame = NSRect(x: barsX, y: barY, width: barsWidth, height: barHeight)
+            detailText.frame = NSRect(
+                x: contentX,
+                y: 0,
+                width: max(bounds.width - contentX - trailing, 1),
+                height: bounds.height
+            )
             return
         }
-        if showFiveHour {
-            fiveHourBar.frame = NSRect(
-                x: barsX,
-                y: barY,
-                width: barWidth,
-                height: barHeight
-            )
-            weeklyBar.frame = NSRect(
-                x: barsX + barWidth,
-                y: barY,
-                width: barWidth,
-                height: barHeight
-            )
-            resetBar.frame = NSRect(
-                x: barsX + barWidth * 2,
-                y: barY,
-                width: max(barsWidth - barWidth * 2, 8),
-                height: barHeight
+
+        let rowHeight: CGFloat = 11
+        let top = floor((bounds.height - rowHeight * 2) / 2)
+        if state?.fiveHour.isAvailable == true {
+            let countdownWidth: CGFloat = 20
+            let rowWidth = max(bounds.width - contentX - gap - countdownWidth - trailing, 1)
+            fiveHourRow.frame = NSRect(x: contentX, y: top, width: rowWidth, height: rowHeight)
+            weeklyRow.frame = NSRect(x: contentX, y: top + rowHeight, width: rowWidth, height: rowHeight)
+            resetText.frame = NSRect(
+                x: bounds.width - trailing - countdownWidth,
+                y: 0,
+                width: countdownWidth,
+                height: bounds.height
             )
         } else {
-            fiveHourBar.frame = .zero
-            weeklyBar.frame = NSRect(
-                x: barsX,
-                y: barY,
-                width: barWidth,
-                height: barHeight
-            )
-            resetBar.frame = NSRect(
-                x: barsX + barWidth,
-                y: barY,
-                width: max(barsWidth - barWidth, 8),
-                height: barHeight
-            )
+            let rowWidth = max(bounds.width - contentX - trailing, 1)
+            fiveHourRow.frame = .zero
+            weeklyRow.frame = NSRect(x: contentX, y: top, width: rowWidth, height: rowHeight)
+            detailText.frame = NSRect(x: contentX, y: top + rowHeight, width: rowWidth, height: rowHeight)
         }
+    }
+
+    func playRecommendationFlash() {
+        guard let layer, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = WorkspaceTouchBarStyle.amberAccent.withAlphaComponent(0.55).cgColor
+        animation.toValue = layer.backgroundColor
+        animation.duration = 0.9
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(animation, forKey: "recommendation")
+    }
+
+    @objc private func activate() {
+        guard let state else { return }
+        if let layer, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let animation = CABasicAnimation(keyPath: "backgroundColor")
+            animation.fromValue = (desktopTheme == .glass ? NSColor.labelColor : NSColor.white)
+                .withAlphaComponent(0.24).cgColor
+            animation.toValue = layer.backgroundColor
+            animation.duration = 0.3
+            layer.add(animation, forKey: "press")
+        }
+        onActivate?(state.provider)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        activate()
+        return true
     }
 
     private func refreshChrome() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             DesktopThemeChrome.apply(to: layer, theme: desktopTheme)
-        }
-        if state?.isRecommended == true {
-            layer?.borderWidth = 1
-            layer?.borderColor = WorkspaceTouchBarStyle.amberAccent
-                .withAlphaComponent(0.7).cgColor
+            if state?.isRecommended == true {
+                layer?.borderWidth = 1
+                layer?.borderColor = WorkspaceTouchBarStyle.amberAccent
+                    .withAlphaComponent(0.7).cgColor
+                layer?.backgroundColor = WorkspaceTouchBarStyle
+                    .recommendedFill(theme: desktopTheme).cgColor
+            }
         }
     }
 }
@@ -1261,7 +1587,10 @@ final class QuotaPlateView: NSView {
         emptyLabel.textColor = theme == .glass ? .secondaryLabelColor : WorkspaceTouchBarStyle.secondaryTextColor
         groupViews.forEach { $0.desktopTheme = theme }
     }
-    private let emptyLabel = NSTextField(labelWithString: "暂无额度")
+    private let emptyLabel = NSTextField(labelWithString: "打开 OpenUsage 后显示订阅额度")
+    var onOpenProvider: ((QuotaProviderID) -> Void)? {
+        didSet { groupViews.forEach { $0.onActivate = onOpenProvider } }
+    }
     private let scrollView = NSScrollView()
     private let documentView = NSView()
     private(set) var groupViews: [QuotaProviderGroupView] = []
@@ -1371,6 +1700,7 @@ final class QuotaPlateView: NSView {
         let style = WorkspacePreferences.quotaMetricDisplayStyle
         guard self.state != state || displayedStyle != style else { return }
         let styleChanged = displayedStyle != style
+        let previousRecommended = self.state.recommendedProvider
         displayedStyle = style
         self.state = state
         let newLeading = state.groups.first?.provider
@@ -1383,17 +1713,22 @@ final class QuotaPlateView: NSView {
         })
         groupViews.removeAll(keepingCapacity: true)
         emptyLabel.isHidden = !state.isEmpty
-        emptyLabel.stringValue = "暂无额度"
+        emptyLabel.stringValue = "打开 OpenUsage 后显示订阅额度"
         scrollView.isHidden = state.isEmpty
         toolTip = state.isEmpty ? "暂无订阅额度数据" : nil
         for group in state.groups {
             let view = retainedViews.removeValue(forKey: group.provider) ?? QuotaProviderGroupView()
+            view.onActivate = onOpenProvider
             view.desktopTheme = desktopTheme
             if view.state != group || styleChanged { view.display(group) }
             if view.superview == nil { documentView.addSubview(view) }
             groupViews.append(view)
         }
         retainedViews.values.forEach { $0.removeFromSuperview() }
+        if let recommended = state.recommendedProvider,
+           let previousRecommended, previousRecommended != recommended {
+            groupViews.first { $0.state?.provider == recommended }?.playRecommendationFlash()
+        }
         needsLayout = true
     }
 
@@ -1546,6 +1881,14 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
     var onToggleWorkspace: (() -> Void)?
     var onCollapse: (() -> Void)?
 
+    var onOpenQuotaProvider: ((QuotaProviderID) -> Void)? {
+        didSet { quotaPlate.onOpenProvider = onOpenQuotaProvider }
+    }
+
+    func playLaunchFeedback(for app: CustomWorkspaceApp) {
+        customAppsView.playLaunchFeedback(for: app)
+    }
+
     var onQuotaScrollStateChanged: ((QuotaScrollState) -> Void)? {
         didSet { quotaPlate.onScrollStateChanged = onQuotaScrollStateChanged }
     }
@@ -1645,6 +1988,7 @@ final class WorkspaceTouchBarController: NSObject, NSTouchBarDelegate {
 
     func showQuota(_ state: QuotaBoardState) {
         quotaPlate.display(state)
+        customAppsView.showQuota(state)
         contentView.setNeedsRegionLayout()
     }
 

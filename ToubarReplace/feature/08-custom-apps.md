@@ -2,12 +2,12 @@
 
 ## 常用应用触控启动栏
 - 用户称呼：常用应用区、自定义 App、App 槽位、快捷启动区、桌面 App 快捷栏
-- 入口：位于 Workspace 触控托盘右侧（宽度由设置「区域比例」决定，默认占据托盘 30% 宽度）
+- 入口：位于 Workspace 触控托盘右侧（宽度按 App 数量自动收缩，5 个 App 约 250pt，最多占设置「App 区上限」）
 - 关键选择器：
   - 应用区容器：`WorkspaceCustomAppsView`
   - 启动与完成控制：`CustomWorkspaceAppLauncher`、`CustomWorkspaceAppLaunchCompletion`、`TouchBarWindowController.openCustomWorkspaceApp(_:)`
   - 空态添加按钮：`WorkspaceChromeButton`
-    - 标题：`"自定义app"`
+    - 标题：`"＋ 添加常用 App"`
     - Tooltip：`"点击在设置中添加常用应用"`
     - 无障碍标签：`accessibilityLabel: "添加自定义 App"`
   - 已固定应用按钮：`WorkspaceChromeButton`
@@ -22,7 +22,10 @@
   - 一键快速拉起应用：轻触应用图标瞬间通过 `NSWorkspace.shared.openApplication(at:configuration:completionHandler:)` 启动或聚焦对应应用程序
   - 引导配置常用应用：空态下显示「自定义app」大按钮，点击直接呼出设置面板的常用应用添加流程
   - 常驻设置入口：右侧常驻齿轮按钮，随时可唤起设置面板进行新增、替换或移除
-  - 等分自适应网格排布：槽位宽度根据当前已固定应用数量自适应均分铺满，图标保持标准尺寸居中显示
+  - Dock 式磁贴：`WorkspaceAppTileButton`，每个 40pt 宽、4pt 间距，20pt 图标居上；设置齿轮缩为 28pt 无底色按钮（`WorkspaceChromeButton.isQuiet`）
+  - 运行状态：监听 `NSWorkspace` 的启动、退出与激活通知（不轮询），运行中的 App 图标下显示圆点，前台 App 磁贴浅色高亮
+  - 额度联动：与订阅匹配的 App（如 Claude、Codex、Cursor）在图标右下角显示周余量小饼图，颜色沿用额度节奏色
+  - 启动反馈：轻触磁贴或对应额度卡片时，磁贴做一次 0.36s 弹跳
   - 启动失败错误反馈：当被选应用移动、丢失或无执行权限时，弹窗提示明确错误原因；系统超过 15 秒未完成时提示超时并允许重试，同一应用启动期间合并连续点击，迟到回调仅完成一次
 - 前置条件：在设置中已固定至少 1 个本机 `.app` 应用（最多 5 个）
 - 常见故障现象：

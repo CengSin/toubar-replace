@@ -30,7 +30,7 @@
   - 长期运行挂载恢复：`TouchBarPresentationRecovery` 在应用切换、Fn 松开和物理视图挂载变化后检查托盘与返回键，短暂脱离后重呈现同一 Workspace，保留场景、额度及滚动状态。按住 Fn 时等待，恢复最多尝试 3 次
   - 独立 Escape 返回机制：硬件栏使用专用的 Escape 槽位替换键，软件栏嵌入左侧回退键，轻触即可平滑退回镜像模式
   - 独立界面隐藏键：托盘左侧预留 36pt 隐藏键与 6pt 间距；隐藏整个窗口时保留 Workspace 场景、额度与滚动状态，物理栏暂时呈现整条唤醒层；再次激活恢复 Workspace
-  - 全宽托盘分流：托盘按照用户设定的 `quotaShare` 比例（默认 70%）分为左侧额度用量区与右侧常用应用区
+  - 全宽托盘分流：`WorkspaceTouchBarLayout.fittedZoneFrames(tray:appCount:quotaShare:)` 让右侧 App 区按 `dockNaturalWidth(appCount:)` 收缩到磁贴实际宽度，最多占 `1 - quotaShare`（默认 30%），其余宽度全部给左侧额度区；`trayZoneFrames` 保留为上限分区
   - 双硬件架构兼容：
     - 有物理栏时：托盘在真实 Touch Bar 硬件上呈现，桌面全黑主题镜像捕获画面，毛玻璃主题通过原生工作台同步物理触控状态
     - 无物理栏时：桌面窗口直接呈现 `WorkspaceBarView` 软工作台，展开后支持直接鼠标点击应用和设置控件

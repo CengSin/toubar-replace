@@ -311,6 +311,27 @@ enum QuotaDisplayFormatting {
         }
         return "\(max(minutes, 0))m"
     }
+
+    static func countdownParts(_ text: String) -> (major: String, minor: String) {
+        guard let unit = text.firstIndex(where: { !$0.isNumber }) else { return (text, "") }
+        let end = text.index(after: unit)
+        return (String(text[..<end]), String(text[end...]))
+    }
+}
+
+enum QuotaPace: Equatable, Sendable {
+    case onPace
+    case surplus
+    case deficit
+
+    static let tolerance = 0.15
+    static let lowRemaining = 0.1
+
+    static func classify(remaining: Double, expected: Double) -> QuotaPace {
+        if remaining < lowRemaining || remaining - expected < -tolerance { return .deficit }
+        if remaining - expected > tolerance { return .surplus }
+        return .onPace
+    }
 }
 
 struct QuotaBarMetric: Equatable {
@@ -318,6 +339,8 @@ struct QuotaBarMetric: Equatable {
     var caption: String
     var valueText: String
     var isHighlighted: Bool
+    var expectedRatio: Double? = nil
+    var pace: QuotaPace? = nil
 
     var isAvailable: Bool { ratio != nil }
 }
@@ -402,7 +425,8 @@ struct QuotaBoardState: Equatable {
             valueText: fiveHour.map {
                 QuotaDisplayFormatting.percent($0.remainingRatio)
             },
-            highlighted: highlighted == .fiveHour
+            highlighted: highlighted == .fiveHour,
+            expected: fiveHour?.cycleRemainingRatio(now: now)
         )
         let weeklyMetric = metric(
             caption: "周",
@@ -410,7 +434,8 @@ struct QuotaBoardState: Equatable {
             valueText: weekly.map {
                 QuotaDisplayFormatting.percent($0.remainingRatio)
             },
-            highlighted: highlighted == .weekly
+            highlighted: highlighted == .weekly,
+            expected: weekly?.cycleRemainingRatio(now: now)
         )
         let resetText = weekly.map {
             QuotaDisplayFormatting.countdown($0.resetAt.timeIntervalSince(now))
@@ -443,13 +468,19 @@ struct QuotaBoardState: Equatable {
         caption: String,
         ratio: Double?,
         valueText: String?,
-        highlighted: Bool
+        highlighted: Bool,
+        expected: Double? = nil
     ) -> QuotaBarMetric {
-        QuotaBarMetric(
+        let pace = ratio.flatMap { ratio in
+            expected.map { QuotaPace.classify(remaining: ratio, expected: $0) }
+        }
+        return QuotaBarMetric(
             ratio: ratio,
             caption: caption,
             valueText: valueText ?? "—",
-            isHighlighted: highlighted
+            isHighlighted: highlighted,
+            expectedRatio: ratio == nil ? nil : expected,
+            pace: pace
         )
     }
 }

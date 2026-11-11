@@ -49,6 +49,13 @@ final class WorkspaceBarView: NSView {
     var onOpenCustomApp: ((CustomWorkspaceApp) -> Void)? {
         didSet { customAppsView.onOpenCustomApp = onOpenCustomApp }
     }
+    var onOpenQuotaProvider: ((QuotaProviderID) -> Void)? {
+        didSet { quotaPlate.onOpenProvider = onOpenQuotaProvider }
+    }
+
+    func playLaunchFeedback(for app: CustomWorkspaceApp) {
+        customAppsView.playLaunchFeedback(for: app)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -113,6 +120,7 @@ final class WorkspaceBarView: NSView {
     func showQuota(_ state: QuotaBoardState) {
         quotaPlate.display(state)
         quotaPlate.setDesktopTheme(desktopTheme)
+        customAppsView.showQuota(state)
         needsLayout = true
     }
 
@@ -140,7 +148,11 @@ final class WorkspaceBarView: NSView {
         switcherButton.frame = strip.switcher
         collapseButton.frame = strip.collapse
         trayView.frame = strip.tray
-        let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(strip.quota)
+        let zones = WorkspaceTouchBarLayout.fittedZoneFrames(
+            tray: strip.tray,
+            appCount: customAppsView.appCount
+        )
+        let quotaInner = WorkspaceTouchBarLayout.zoneContentRect(zones.quota)
         let plateHeight = max(
             strip.tray.height - WorkspaceTouchBarLayout.slotVerticalInset * 2,
             22
@@ -152,7 +164,7 @@ final class WorkspaceBarView: NSView {
             height: plateHeight
         )
 
-        let appsInner = WorkspaceTouchBarLayout.zoneContentRect(strip.apps)
+        let appsInner = WorkspaceTouchBarLayout.zoneContentRect(zones.apps)
         customAppsView.frame = NSRect(
             x: appsInner.minX,
             y: strip.tray.minY,
@@ -163,7 +175,7 @@ final class WorkspaceBarView: NSView {
         let dividerHeight: CGFloat = 18
         zoneDivider.frame = NSRect(
             x: floor(
-                strip.apps.minX
+                zones.apps.minX
                     - WorkspaceTouchBarLayout.zoneDividerWidth / 2
             ),
             y: floor(strip.tray.midY - dividerHeight / 2),

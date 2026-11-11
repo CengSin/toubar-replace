@@ -16,8 +16,7 @@
   - 启动后进入下拉框：`startupScenePopup`（`NSPopUpButton`，选项：`Workspace`、`镜像`）
   - 窗口像素输入框：`widthField`、`heightField`（`NSTextField`，单位：`px`，默认 2300 × 70）
   - 外观主题菜单：`themePopup`（选项：`经典黑` / `烟晶（低功耗半透明）` / `液态玻璃`，Identifier / Accessibility Identifier：`ToubarReplace.Settings.Theme`，偏好键：`ToubarReplace.desktopTheme`；未保存时沿用旧键 `ToubarReplace.glassThemeEnabled`，写入时同步旧键）
-  - 额度样式下拉框：`quotaDisplayStylePopup`（`NSPopUpButton`，选项：`柱状`、`数字`等）
-  - 区域比例滑块：`quotaShareSlider`（`NSSlider`，范围 30~75，`accessibilityLabel: "额度区域占比"`，联动标签 `quotaShareLabel`: "额度 X% · App Y%"）
+  - App 区上限滑块：`quotaShareSlider`（`NSSlider`，范围 30~75，`accessibilityLabel: "App 区最大占比"`，联动标签 `quotaShareLabel`: "App 区最多占 Y%，按 App 数量自动收缩"；偏好键仍为 `ToubarReplace.workspace.quotaShare`）
   - 用量订阅控制：
     - 批量按钮：`showAll`（标题："全部显示"）、`hideAll`（标题："全部隐藏"）
     - 订阅复选框：`NSButton(checkboxWithTitle: choice.title)`，`identifier: choice.id.rawValue`（如 `grok-build`、`grok-bots`、`codex`、`cursor`、`claude`、`antigravity`、`copilot`、`opencode`、`ollama`、`devin`、`openrouter` 等）

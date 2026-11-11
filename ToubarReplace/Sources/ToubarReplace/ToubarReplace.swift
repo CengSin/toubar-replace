@@ -213,9 +213,6 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             onQuotaLayoutChanged: { [weak self] in
                 self?.windowController?.reloadWorkspaceRegionLayout()
             },
-            onQuotaDisplayStyleChanged: { [weak self] in
-                self?.windowController?.reloadQuotaVisibilityFromPreferences()
-            },
             onWindowClosed: { [weak self] in
                 NSApp.setActivationPolicy(.accessory)
                 self?.windowController?.ensurePhysicalSwitcherPresented()

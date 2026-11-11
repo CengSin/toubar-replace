@@ -902,11 +902,69 @@ enum ToubarReplaceSmokeTest {
             appsView.needsLayout = true
             appsView.layoutSubtreeIfNeeded()
             let slots = appsView.slotFramesForValidation
+            let tiles = slots.dropLast()
             expect(slots.count == 4 && slots.first?.minX == 0
-                    && abs((slots.last?.maxX ?? 0) - width) < 4
-                    && slots.allSatisfy { abs($0.width - slots[0].width) < 0.5 },
-                   "app buttons must evenly fill the region as its width changes", failures: &failures)
+                    && tiles.allSatisfy { abs($0.width - WorkspaceTouchBarLayout.appTileWidth) < 0.5 }
+                    && (slots.last?.maxX ?? .infinity) <= width + 0.5
+                    && (slots.last?.width ?? 0) < WorkspaceTouchBarLayout.appTileWidth,
+                   "app tiles must pack from the leading edge at Dock width with a compact settings gear",
+                   failures: &failures)
         }
+        let fittedTray = NSRect(x: 0, y: 0, width: 900, height: 30)
+        let fitted = WorkspaceTouchBarLayout.fittedZoneFrames(tray: fittedTray, appCount: 3, quotaShare: 0.7)
+        let capped = WorkspaceTouchBarLayout.trayZoneFrames(tray: fittedTray, quotaShare: 0.7)
+        expect(
+            abs(fitted.apps.width - ceil(WorkspaceTouchBarLayout.dockNaturalWidth(appCount: 3)
+                + WorkspaceTouchBarLayout.zoneContentInset * 2)) < 1
+                && fitted.apps.width <= capped.apps.width + 0.5
+                && fitted.quota.width > capped.quota.width
+                && abs(fitted.quota.width + fitted.apps.width
+                    - (fittedTray.width - WorkspaceTouchBarLayout.trayTrailingSafeInset)) < 1
+                && fitted.quota.maxX <= fitted.apps.minX + 0.5,
+            "the apps zone must shrink to its tiles and give the remaining width to quota",
+            failures: &failures
+        )
+        let narrowTray = NSRect(x: 0, y: 0, width: 500, height: 30)
+        expect(
+            WorkspaceTouchBarLayout.fittedZoneFrames(tray: narrowTray, appCount: 5, quotaShare: 0.75).apps.width
+                <= WorkspaceTouchBarLayout.trayZoneFrames(tray: narrowTray, quotaShare: 0.75).apps.width + 0.5,
+            "the region slider must cap the apps zone",
+            failures: &failures
+        )
+        expect(
+            QuotaPace.classify(remaining: 0.9, expected: 0.3) == .surplus
+                && QuotaPace.classify(remaining: 0.5, expected: 0.45) == .onPace
+                && QuotaPace.classify(remaining: 0.2, expected: 0.6) == .deficit
+                && QuotaPace.classify(remaining: 0.05, expected: 0.02) == .deficit,
+            "pace must compare remaining quota with remaining time",
+            failures: &failures
+        )
+        let dayParts = QuotaDisplayFormatting.countdownParts("3d0h")
+        let hourParts = QuotaDisplayFormatting.countdownParts("3h21m")
+        let minuteParts = QuotaDisplayFormatting.countdownParts("45m")
+        let missingParts = QuotaDisplayFormatting.countdownParts("—")
+        expect(
+            dayParts.major == "3d" && dayParts.minor == "0h"
+                && hourParts.major == "3h" && hourParts.minor == "21m"
+                && minuteParts.major == "45m" && minuteParts.minor.isEmpty
+                && missingParts.major == "—" && missingParts.minor.isEmpty,
+            "countdowns must split into a major and minor line",
+            failures: &failures
+        )
+        expect(
+            boardState.groups.contains(where: {
+                $0.provider == .codex
+                    && $0.weekly.pace == .surplus
+                    && abs(($0.weekly.expectedRatio ?? 0) - 72.0 / 168.0) < 0.001
+            })
+                && boardState.groups.contains(where: {
+                    $0.provider == .grokBots
+                        && $0.weekly.pace == nil
+                        && $0.weekly.expectedRatio == nil
+                }),
+            "quota metrics must carry the time-based expectation and pace",
+            failures: &failures
+        )
         let settingsFrame = appsView.settingsButtonFrame
         expect(
             settingsFrame.width > 20

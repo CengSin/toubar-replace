@@ -697,6 +697,12 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         workspaceTouchBarController.onOpenCustomApp = { [weak self] app in
             self?.openCustomWorkspaceApp(app)
         }
+        rootView.workspaceView.onOpenQuotaProvider = { [weak self] provider in
+            self?.openQuotaProvider(provider)
+        }
+        workspaceTouchBarController.onOpenQuotaProvider = { [weak self] provider in
+            self?.openQuotaProvider(provider)
+        }
         workspaceTouchBarController.onPresentationInterrupted = { [weak self] in
             self?.handleWorkspacePresentationInterrupted()
         }
@@ -1016,6 +1022,29 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
                 self.onApplicationLaunchFailed?(app.displayName, error.localizedDescription)
             }
         }
+    }
+
+    private func openQuotaProvider(_ provider: QuotaProviderID) {
+        if let app = QuotaProviderLaunch.matchingCustomApp(
+            provider: provider,
+            apps: WorkspacePreferences.customApps
+        ) {
+            workspaceTouchBarController.playLaunchFeedback(for: app)
+            rootView.workspaceView.playLaunchFeedback(for: app)
+            openCustomWorkspaceApp(app)
+            return
+        }
+        let workspace = NSWorkspace.shared
+        if let url = provider.bundleIdentifiers.lazy.compactMap({
+            workspace.urlForApplication(withBundleIdentifier: $0)
+        }).first {
+            workspace.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
+        } else if let url = provider.fallbackURL {
+            workspace.open(url)
+        } else {
+            return
+        }
+        reconcilePhysicalTouchBar()
     }
 
     @discardableResult

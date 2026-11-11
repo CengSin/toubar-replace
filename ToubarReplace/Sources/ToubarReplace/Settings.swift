@@ -152,7 +152,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let onDesktopThemeChanged: () -> Void
     private let quotaShareSlider = NSSlider(value: WorkspacePreferences.quotaShare * 100, minValue: 30, maxValue: 75, target: nil, action: nil)
     private let quotaShareLabel = NSTextField(labelWithString: "")
-    private let quotaDisplayStylePopup: NSPopUpButton
     private let widthField: NSTextField
     private let heightField: NSTextField
     private let customAppsStack: NSStackView
@@ -167,7 +166,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
     private let onCustomAppsChanged: () -> Void
     private let onQuotaVisibilityChanged: () -> Void
     private let onQuotaLayoutChanged: () -> Void
-    private let onQuotaDisplayStyleChanged: () -> Void
     private let onWindowClosed: () -> Void
 
     init(
@@ -185,7 +183,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         onCustomAppsChanged: @escaping () -> Void,
         onQuotaVisibilityChanged: @escaping () -> Void,
         onQuotaLayoutChanged: @escaping () -> Void,
-        onQuotaDisplayStyleChanged: @escaping () -> Void,
         onWindowClosed: @escaping () -> Void,
         onDesktopThemeChanged: @escaping () -> Void = {}
     ) {
@@ -194,7 +191,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.originYField = NSTextField()
         self.switcherDisplayModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.startupScenePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        self.quotaDisplayStylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         self.widthField = NSTextField()
         self.heightField = NSTextField()
         self.customAppsStack = NSStackView()
@@ -208,7 +204,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         self.onCustomAppsChanged = onCustomAppsChanged
         self.onQuotaVisibilityChanged = onQuotaVisibilityChanged
         self.onQuotaLayoutChanged = onQuotaLayoutChanged
-        self.onQuotaDisplayStyleChanged = onQuotaDisplayStyleChanged
         self.onWindowClosed = onWindowClosed
         self.onDesktopThemeChanged = onDesktopThemeChanged
 
@@ -313,16 +308,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
 
         let quotaSectionLabel = NSTextField(labelWithString: "用量订阅")
         quotaSectionLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        let quotaDisplayStyleLabel = NSTextField(labelWithString: "额度样式")
-        quotaDisplayStylePopup.addItems(
-            withTitles: QuotaMetricDisplayStyle.allCases.map(\.title)
-        )
-        let currentQuotaStyle = WorkspacePreferences.quotaMetricDisplayStyle
-        quotaDisplayStylePopup.selectItem(
-            at: QuotaMetricDisplayStyle.allCases.firstIndex(
-                of: currentQuotaStyle
-            ) ?? 0
-        )
         quotaProvidersStack.orientation = .vertical
         quotaProvidersStack.alignment = .leading
         quotaProvidersStack.spacing = 6
@@ -366,21 +351,14 @@ final class TouchBarSettingsWindowController: NSWindowController,
         startupSceneRow.spacing = 12
         startupSceneRow.alignment = .centerY
 
-        let quotaDisplayStyleRow = NSStackView(
-            views: [quotaDisplayStyleLabel, quotaDisplayStylePopup]
-        )
-        quotaDisplayStyleRow.orientation = .horizontal
-        quotaDisplayStyleRow.spacing = 12
-        quotaDisplayStyleRow.alignment = .centerY
-
         quotaShareSlider.action = #selector(quotaShareChanged(_:))
         quotaShareSlider.isContinuous = true
-        quotaShareSlider.setAccessibilityLabel("额度区域占比")
+        quotaShareSlider.setAccessibilityLabel("App 区最大占比")
         quotaShareSlider.widthAnchor.constraint(equalToConstant: 160).isActive = true
         quotaShareLabel.font = .systemFont(ofSize: 11)
         quotaShareLabel.textColor = .secondaryLabelColor
         let quotaShareRow = NSStackView(views: [
-            NSTextField(labelWithString: "区域比例"), quotaShareSlider, quotaShareLabel,
+            NSTextField(labelWithString: "App 区上限"), quotaShareSlider, quotaShareLabel,
         ])
         quotaShareRow.spacing = 12
         quotaShareRow.alignment = .centerY
@@ -402,7 +380,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
                 sizeRow,
                 themeRow,
                 quotaSectionLabel,
-                quotaDisplayStyleRow,
                 quotaShareRow,
                 quotaProvidersStack,
                 customAppsSectionLabel,
@@ -424,12 +401,10 @@ final class TouchBarSettingsWindowController: NSWindowController,
             originLabel.widthAnchor.constraint(equalToConstant: 72),
             switcherModeLabel.widthAnchor.constraint(equalToConstant: 72),
             startupSceneLabel.widthAnchor.constraint(equalToConstant: 72),
-            quotaDisplayStyleLabel.widthAnchor.constraint(equalToConstant: 72),
             sizeLabel.widthAnchor.constraint(equalToConstant: 72),
             positionPopup.widthAnchor.constraint(equalToConstant: 180),
             switcherDisplayModePopup.widthAnchor.constraint(equalToConstant: 180),
             startupScenePopup.widthAnchor.constraint(equalToConstant: 180),
-            quotaDisplayStylePopup.widthAnchor.constraint(equalToConstant: 180),
             originXField.widthAnchor.constraint(equalToConstant: 70),
             originYField.widthAnchor.constraint(equalToConstant: 70),
             widthField.widthAnchor.constraint(equalToConstant: 90),
@@ -496,8 +471,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         switcherDisplayModePopup.action = #selector(switcherDisplayModeChanged(_:))
         startupScenePopup.target = self
         startupScenePopup.action = #selector(startupSceneChanged(_:))
-        quotaDisplayStylePopup.target = self
-        quotaDisplayStylePopup.action = #selector(quotaDisplayStyleChanged(_:))
         widthField.target = self
         widthField.action = #selector(pixelSizeChanged(_:))
         heightField.target = self
@@ -678,7 +651,7 @@ final class TouchBarSettingsWindowController: NSWindowController,
 
     private func updateQuotaShareLabel() {
         let percent = Int((WorkspacePreferences.quotaShare * 100).rounded())
-        quotaShareLabel.stringValue = "额度 \(percent)% · App \(100 - percent)%"
+        quotaShareLabel.stringValue = "App 区最多占 \(100 - percent)%，按 App 数量自动收缩"
     }
 
     @objc private func quotaShareChanged(_ sender: NSSlider) {
@@ -687,15 +660,6 @@ final class TouchBarSettingsWindowController: NSWindowController,
         WorkspacePreferences.quotaShare = share
         updateQuotaShareLabel()
         onQuotaLayoutChanged()
-    }
-
-    @objc
-    private func quotaDisplayStyleChanged(_ sender: NSPopUpButton) {
-        let styles = QuotaMetricDisplayStyle.allCases
-        guard styles.indices.contains(sender.indexOfSelectedItem) else { return }
-        WorkspacePreferences.quotaMetricDisplayStyle =
-            styles[sender.indexOfSelectedItem]
-        onQuotaDisplayStyleChanged()
     }
 
     @objc

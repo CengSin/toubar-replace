@@ -60,7 +60,7 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
             signal(signalNumber, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
             source.setEventHandler {
-                Task { @MainActor in NSApp.terminate(nil) }
+                MainActor.assumeIsolated { NSApp.terminate(nil) }
             }
             source.resume()
             terminationSignalSources.append(source)
@@ -315,21 +315,17 @@ final class ToubarReplaceAppDelegate: NSObject, NSApplicationDelegate {
 @main
 @MainActor
 struct ToubarReplaceMain {
-    static func main() {
+    static func main() async {
         if CommandLine.arguments.contains("--smoke-test") {
-            Task { @MainActor in
-                let failures = await ToubarReplaceSmokeTest.failures()
-                guard failures.isEmpty else {
-                    let message = "ToubarReplace smoke test failed:\n"
-                        + failures.map { "- \($0)" }.joined(separator: "\n")
-                        + "\n"
-                    FileHandle.standardError.write(Data(message.utf8))
-                    exit(EXIT_FAILURE)
-                }
-                print("ToubarReplace smoke test passed")
-                exit(EXIT_SUCCESS)
+            let failures = await ToubarReplaceSmokeTest.failures()
+            guard failures.isEmpty else {
+                let message = "ToubarReplace smoke test failed:\n"
+                    + failures.map { "- \($0)" }.joined(separator: "\n")
+                    + "\n"
+                FileHandle.standardError.write(Data(message.utf8))
+                exit(EXIT_FAILURE)
             }
-            RunLoop.main.run()
+            print("ToubarReplace smoke test passed")
             return
         }
         let application = NSApplication.shared

@@ -2,40 +2,10 @@ import CoreGraphics
 import Foundation
 
 @MainActor
-final class MainThreadTicker: NSObject {
-    private let action: () -> Void
-    private var timer: Timer?
-
-    init(interval: TimeInterval, tolerance: TimeInterval = 0, action: @escaping () -> Void) {
-        self.action = action
-        super.init()
-        let timer = Timer(
-            timeInterval: interval,
-            target: self,
-            selector: #selector(tick),
-            userInfo: nil,
-            repeats: true
-        )
-        timer.tolerance = tolerance
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-    }
-
-    func invalidate() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    @objc private func tick() {
-        action()
-    }
-}
-
-@MainActor
 final class TouchBarFunctionKeyMonitor {
     private let readFlags: () -> CGEventFlags
     private let onChange: (Bool) -> Void
-    private var timer: MainThreadTicker?
+    private var timer: Timer?
     private(set) var isPressed = false
     var onStateChanged: ((Bool) -> Void)?
 
@@ -53,9 +23,12 @@ final class TouchBarFunctionKeyMonitor {
 
     func start() {
         if timer == nil {
-            timer = MainThreadTicker(interval: 1.0 / 30, tolerance: 0.005) { [weak self] in
-                self?.refresh()
+            let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
             }
+            timer.tolerance = 0.005
+            RunLoop.main.add(timer, forMode: .common)
+            self.timer = timer
         }
         refresh()
     }

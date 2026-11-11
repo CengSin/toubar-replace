@@ -188,7 +188,7 @@ final class DesktopCapsuleController {
     let view: DesktopCapsuleView
     private var width = DesktopCapsuleSpring(value: 1)
     private var height = DesktopCapsuleSpring(value: 1)
-    private var animationTimer: MainThreadTicker?
+    private var animationTimer: Timer?
     private var lastFrameTime: TimeInterval = 0
     private(set) var isExpanded = false
     var isAnimating: Bool { animationTimer != nil || !width.isSettled || !height.isSettled }
@@ -273,9 +273,11 @@ final class DesktopCapsuleController {
         }
         onAnimationStarted?()
         lastFrameTime = ProcessInfo.processInfo.systemUptime
-        animationTimer = MainThreadTicker(interval: 1.0 / 60) { [weak self] in
-            self?.advanceAnimation()
+        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.advanceAnimation() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        animationTimer = timer
     }
 
     private func advanceAnimation() {

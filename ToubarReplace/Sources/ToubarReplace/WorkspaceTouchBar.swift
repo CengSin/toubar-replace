@@ -1375,6 +1375,7 @@ final class QuotaProviderGroupView: NSView {
     private let weeklyRow = QuotaPaceRowView()
     private let resetText = QuotaStackedTextView()
     private let detailText = QuotaStackedTextView()
+    private let tapButton = NSButton()
     private(set) var state: QuotaProviderGroupState?
     var onActivate: ((QuotaProviderID) -> Void)?
 
@@ -1395,9 +1396,14 @@ final class QuotaProviderGroupView: NSView {
         for view in [ringView, iconView, fiveHourRow, weeklyRow, resetText, detailText] {
             addSubview(view)
         }
-        let click = NSClickGestureRecognizer(target: self, action: #selector(activate))
-        click.allowedTouchTypes = [.direct, .indirect]
-        addGestureRecognizer(click)
+        tapButton.isBordered = false
+        tapButton.isTransparent = true
+        tapButton.title = ""
+        tapButton.imagePosition = .noImage
+        tapButton.setAccessibilityElement(false)
+        tapButton.target = self
+        tapButton.action = #selector(activate)
+        addSubview(tapButton)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -1410,10 +1416,6 @@ final class QuotaProviderGroupView: NSView {
     override var isFlipped: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        frame.contains(point) ? self : nil
-    }
 
     func display(_ state: QuotaProviderGroupState) {
         self.state = state
@@ -1482,6 +1484,7 @@ final class QuotaProviderGroupView: NSView {
             ?? NSScreen.main?.backingScaleFactor
             ?? 2
         layer?.contentsScale = scale
+        tapButton.frame = bounds
         guard bounds.width > 1, bounds.height > 1 else { return }
 
         let padding: CGFloat = 4

@@ -16,7 +16,7 @@
   - 按量计费卡片（如 OpenRouter）：展示对应 Agent 图标、金额数值（如 `$12.50`）与 `余额/额度` 标签，不展示虚假重置环
   - 推荐订阅高亮描边：浪费压力最大的订阅卡片自动展示琥珀色（Amber）外框描边，其贡献最高分数的额度柱呈现琥珀高亮，并自动置顶排列在最左侧
   - 额度指标直观展示：余量条与百分比同时常驻，不再区分柱状与数字模式（旧偏好 `quotaMetricDisplayStyle` 保留读取但不再影响渲染）
-  - 点按打开：轻触卡片打开对应工具。优先使用 `QuotaProviderLaunch.matchingCustomApp` 匹配的已固定 App（同时让对应磁贴弹跳），其次按 Bundle ID 打开已安装的 App，最后打开 `fallbackURL` 网页
+  - 点按打开：卡片顶层覆盖透明 `NSButton`（不使用手势识别器，`NSClickGestureRecognizer` 不允许直接触摸类型），轻触卡片打开对应工具。优先使用 `QuotaProviderLaunch.matchingCustomApp` 匹配的已固定 App（同时让对应磁贴弹跳），其次按 Bundle ID 打开已安装的 App，最后打开 `fallbackURL` 网页
   - 推荐切换提示：推荐订阅变化时，新推荐卡片播放一次 0.9s 琥珀渐隐；无常驻动画，物理栏静止时镜像不产生新帧
   - 软件回退桌面辅助 Tooltip：卡片挂载系统级 `toolTip = state.tooltip`（如 `"Cursor · 5h 92% · 周 78% · 重置 3d0h"`），物理 Touch Bar 上纯靠卡片直接渲染触控识别
 - 子功能：

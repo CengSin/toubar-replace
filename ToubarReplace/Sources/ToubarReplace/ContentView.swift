@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import OSLog
 
 struct TouchBarWindowMetrics {
     static let defaultSize = CGSize(width: 1_150, height: 35)
@@ -332,6 +333,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
     private var workspaceGeneration: UInt64 = 0
     private var quotaRefreshTask: Task<Void, Never>?
     private var physicalWorkspacePresentationTask: Task<Void, Never>?
+    private var hardwareResumeTask: Task<Void, Never>?
+    private var unlockObserver: NSObjectProtocol?
+    private static let hardwareResumeSettle: Duration = .milliseconds(800)
+    private static let powerLogger = Logger(subsystem: "com.toubarreplace.app", category: "Power")
     private var launchingApps: Set<String> = []
 
 
@@ -496,6 +501,8 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
     func stop() {
         isRunning = false
+        hardwareResumeTask?.cancel()
+        hardwareResumeTask = nil
         spaceVisibilityMonitor?.stop()
         cancelWorkspaceAsyncWork(invalidateSession: true)
         workspaceTouchBarController.dismiss()
@@ -507,6 +514,10 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(center.removeObserver)
         workspaceObservers.removeAll()
+        if let unlockObserver {
+            DistributedNotificationCenter.default().removeObserver(unlockObserver)
+            self.unlockObserver = nil
+        }
     }
 
     func setDisplayPosition(_ position: TouchBarDisplayPosition) {
@@ -1067,66 +1078,80 @@ final class TouchBarWindowController: NSWindowController, NSWindowDelegate {
 
         for name in pauseNotifications {
             workspaceObservers.append(
-                center.addObserver(
-                    forName: name,
-                    object: nil,
-                    queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.isRunning else { return }
-                        self.resumeToWorkspace =
-                            WorkspaceSleepPausePolicy.latchedResumeToWorkspace(
-                                alreadyPaused: self.isHardwareSessionPaused,
-                                latchedResume: self.resumeToWorkspace,
-                                sceneIsWorkspace: self.rootView.scene
-                                    == .workspace
-                            )
-                        self.isHardwareSessionPaused = true
-                        self.wakeTouchBarController.dismiss()
-                        self.updateFunctionKeyMonitoring()
-                        if self.rootView.scene == .workspace,
-                           !self.usesSoftwareWorkspace
-                        {
-
-
-
-                            self.workspaceTouchBarController.dismiss()
-                        }
-                        self.switcherTouchBarController.dismiss()
-                        self.capture.stop()
-                    }
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.pauseHardwareSession(reason: name) }
                 }
             )
         }
 
         for name in resumeNotifications {
             workspaceObservers.append(
-                center.addObserver(
-                    forName: name,
-                    object: nil,
-                    queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.isRunning else { return }
-                        self.rootView.suppressesCapture = true
-                        self.capture.pause()
-                        self.wakeTouchBarController.dismiss()
-                        self.workspaceTouchBarController.dismiss()
-                        self.switcherTouchBarController.dismiss()
-                        self.isHardwareSessionPaused = false
-                        if self.usesSoftwareWorkspace {
-                            if self.rootView.scene != .workspace {
-                                self.enterSoftwareWorkspace(isLaunch: true)
-                            }
-                        } else if self.resumeToWorkspace && self.rootView.scene != .workspace {
-                            self.enterHardwareWorkspace(isLaunch: true)
-                        }
-                        self.resumeToWorkspace = false
-                        self.synchronizePhysicalTouchBar()
-                    }
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.scheduleHardwareSessionResume(reason: name) }
                 }
             )
         }
 
+        if unlockObserver == nil {
+            let unlocked = Notification.Name("com.apple.screenIsUnlocked")
+            unlockObserver = DistributedNotificationCenter.default().addObserver(
+                forName: unlocked, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.scheduleHardwareSessionResume(reason: unlocked) }
+            }
+        }
+    }
+
+    private func pauseHardwareSession(reason: Notification.Name) {
+        hardwareResumeTask?.cancel()
+        hardwareResumeTask = nil
+        guard isRunning else { return }
+        Self.powerLogger.notice("pause hardware session: \(reason.rawValue, privacy: .public)")
+        resumeToWorkspace = WorkspaceSleepPausePolicy.latchedResumeToWorkspace(
+            alreadyPaused: isHardwareSessionPaused,
+            latchedResume: resumeToWorkspace,
+            sceneIsWorkspace: rootView.scene == .workspace
+        )
+        isHardwareSessionPaused = true
+        wakeTouchBarController.dismiss()
+        updateFunctionKeyMonitoring()
+        if rootView.scene == .workspace, !usesSoftwareWorkspace {
+            workspaceTouchBarController.dismiss()
+        }
+        switcherTouchBarController.dismiss()
+        capture.shutdown()
+    }
+
+    private func scheduleHardwareSessionResume(reason: Notification.Name) {
+        guard isRunning else { return }
+        Self.powerLogger.notice("schedule hardware session resume: \(reason.rawValue, privacy: .public)")
+        hardwareResumeTask?.cancel()
+        hardwareResumeTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: Self.hardwareResumeSettle) }
+            catch { return }
+            guard !Task.isCancelled, let self else { return }
+            self.hardwareResumeTask = nil
+            self.resumeHardwareSession()
+        }
+    }
+
+    private func resumeHardwareSession() {
+        guard isRunning else { return }
+        Self.powerLogger.notice("resume hardware session")
+        rootView.suppressesCapture = true
+        capture.shutdown()
+        wakeTouchBarController.dismiss()
+        workspaceTouchBarController.dismiss()
+        switcherTouchBarController.dismiss()
+        isHardwareSessionPaused = false
+        if usesSoftwareWorkspace {
+            if rootView.scene != .workspace {
+                enterSoftwareWorkspace(isLaunch: true)
+            }
+        } else if resumeToWorkspace && rootView.scene != .workspace {
+            enterHardwareWorkspace(isLaunch: true)
+        }
+        resumeToWorkspace = false
+        synchronizePhysicalTouchBar()
     }
 }

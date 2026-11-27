@@ -94,16 +94,17 @@ enum DesktopCapsuleSmokeTest {
         let content = NSView()
         let capsule = DesktopCapsuleView(content: content)
         capsule.expandedSize = retinaSize
-        for theme in [DesktopTheme.black, .glass] {
+        for theme in DesktopTheme.allCases {
             capsule.apply(theme: theme)
             capsule.frame.size = retinaSize
             capsule.setExpanded(false)
             capsule.updateReveal(width: retinaSize.width)
             capsule.needsLayout = true
             capsule.layoutSubtreeIfNeeded()
-            check(capsule.subviews.count == 1 && content.superview?.isHidden == true
+            check(capsule.subviews.count == (theme == .smoke ? 2 : 1)
+                  && content.superview?.alphaValue == 0 && content.superview?.isHidden == true
                   && capsule.hitTest(CGPoint(x: 24, y: 24)) == nil,
-                  "both themes must have only the content container with no extra desktop controls")
+                  "each theme must keep collapsed content transparent and pass pointer events through")
             capsule.frame.size = retinaSize
             capsule.setExpanded(true)
             capsule.updateReveal(width: retinaSize.width)
@@ -111,7 +112,7 @@ enum DesktopCapsuleSmokeTest {
             capsule.layoutSubtreeIfNeeded()
             check(content.frame.size == retinaSize && content.superview?.alphaValue == 1
                   && capsule.layer?.cornerRadius == 17.5,
-                  "both themes must reveal the content at the complete configured size")
+                  "each theme must reveal the content at the complete configured size")
             capsule.contentAcceptsMouseEvents = false
             check(capsule.hitTest(CGPoint(x: 24, y: 24)) == nil,
                   "the hardware mirror must pass pointer events through its full content area")

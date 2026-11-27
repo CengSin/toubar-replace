@@ -13,7 +13,7 @@
   - 无障碍标签：`accessibilityLabel: "打开 Workspace"`
 - 子功能：
   - 单击唤出 Workspace：轻触触控栏左侧网格，触发将物理栏模式从镜像切换为全宽 Workspace
-  - 隐藏桌面界面：轻触网格右侧的下箭头，整个桌面窗口退出显示，整条物理 Touch Bar 切换为唤醒入口
+  - 轻触网格右侧的下箭头，整个桌面浮窗变为全透明，整条物理 Touch Bar 切换为唤醒入口。
   - 维持 Control Strip 协同：使用 Placement 0 策略，确保系统音量、亮度等 Control Strip 正常常驻
   - 系统关闭盒抑制：在设置窗口或其它应用激活时，异步抑制并隐藏系统插入的 "X" 关闭按钮（`suppressCloseBox` / `TBRHideSystemModalCloseButton`）
   - 异常脱离自愈恢复：`TouchBarPresentationRecovery` 在首次呈现、窗口挂载变化、应用激活和 Fn 松开后延迟 350ms 检查挂载。按住 Fn 时等待系统临时画面结束，松开后恢复切换钮；单轮恢复最多尝试 3 次，场景退出时取消旧任务

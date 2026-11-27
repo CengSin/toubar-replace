@@ -92,6 +92,10 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
         let screen = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
         panel.setFrameOrigin(CGPoint(x: screen.minX + 80, y: screen.minY + 80))
         let origin = panel.frame.origin
+        controller.start()
+        controller.setExpanded(false)
+        root.workspaceView.onCollapse = { controller.setExpanded(false) }
+        let hideButton = root.workspaceView.subviews.compactMap { $0 as? DesktopCapsuleButton }.first
 
         func pointerGesture(drag: Bool = false) {
             let location = CGPoint(x: 24, y: panel.frame.height / 2)
@@ -130,16 +134,17 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
         let fixedPosition = TouchBarPreferences.displayPosition
         pointerGesture()
         pointerGesture(drag: true)
-        check(!controller.isExpanded && !panel.isVisible && panel.frame.origin == origin && panel.ignoresMouseEvents
+        check(!controller.isExpanded && panel.isVisible && panel.alphaValue == 0
+              && panel.frame.origin == origin && panel.ignoresMouseEvents
               && TouchBarPreferences.displayPosition == fixedPosition,
               "pointer clicks and drags must neither reveal nor move the hidden interface or change its position setting")
 
-        for theme in [DesktopTheme.black, .glass] {
+        for theme in DesktopTheme.allCases {
             host.apply(theme: theme)
             capsule.apply(theme: theme)
             root.apply(theme: theme)
-            check(!panel.isVisible && panel.frame.size == CGSize(width: 900, height: 35),
-                  "\(theme): hidden state must remove the entire window and retain configured geometry")
+            check(panel.isVisible && panel.alphaValue == 0 && panel.frame.size == CGSize(width: 900, height: 35),
+                  "\(theme): the hidden window must stay ordered and fully transparent at its configured size")
             wake.wakeView.button.performClick(nil)
             try? await Task.sleep(for: .milliseconds(80))
             let intermediateWidth = panel.frame.width
@@ -153,24 +158,24 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                   && panel.frame.origin == origin && panel.alphaValue == 1,
                   "\(theme): expanded window must match configured total width at a fixed origin")
             check(root.frame.size == CGSize(width: 900, height: 35) && root.superview?.alphaValue == 1
-                  && capsule.subviews.count == 1,
+                  && capsule.subviews.count == (theme == .smoke ? 2 : 1),
                   "\(theme): workspace must use the full configured size without extra desktop controls")
-            controller.toggle()
+            check(hideButton?.accessibilityPerformPress() == true, "the Workspace hide button must handle the press")
             try? await Task.sleep(for: .milliseconds(800))
-            check(!panel.isVisible && panel.frame.size == CGSize(width: 900, height: 35)
+            check(!controller.isExpanded && panel.isVisible && panel.alphaValue == 0 && panel.frame.size == CGSize(width: 900, height: 35)
                   && panel.frame.origin == origin && root.superview?.isHidden == true,
-                  "\(theme): hiding must remove the entire real window and retain its configured position")
+                  "\(theme): the hide button must make the entire window transparent at its configured position")
         }
 
         controller.toggle()
         try? await Task.sleep(for: .milliseconds(80))
         controller.toggle()
-        check(!panel.isVisible && !controller.isAnimating && panel.frame.origin == origin,
-              "hiding during a reveal must immediately remove the window and cancel the animation")
+        check(panel.isVisible && panel.alphaValue == 0 && !controller.isAnimating && panel.frame.origin == origin,
+              "hiding during a reveal must immediately make the window transparent and cancel the animation")
         try? await Task.sleep(for: .milliseconds(800))
-        check(!panel.isVisible, "a cancelled reveal must stay hidden after its previous animation deadline")
+        check(panel.isVisible && panel.alphaValue == 0, "a cancelled reveal must stay transparent after its animation deadline")
         controller.configure(pixelSize: CGSize(width: 2_000, height: 140), backingScaleFactor: 2)
-        check(!panel.isVisible && panel.frame.origin == origin,
+        check(panel.isVisible && panel.alphaValue == 0 && panel.frame.origin == origin,
               "changing dimensions while hidden must retain visibility and position")
         controller.toggle()
         try? await Task.sleep(for: .milliseconds(800))
@@ -242,16 +247,24 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                let appCapsule = findCapsule(in: host), let appRoot = appCapsule.content as? TouchBarRootView {
                 let initialOrigin = appWindow.frame.origin
                 let initialScene = appRoot.scene
-                check(appWindow.isVisible && appCapsule.isExpanded
-                      && appWindow.frame.size == CGSize(width: 900, height: 35) && appCapsule.subviews.count == 1,
-                      "production \(scene): startup must show the complete configured interface")
+                let startedExpanded = appCapsule.isExpanded
+                if !startedExpanded {
+                    check(appWindow.isVisible && appWindow.alphaValue == 0 && appWindow.ignoresMouseEvents,
+                          "production \(scene): a collapsed startup window must be transparent before a manual wake")
+                    appController.toggleDesktopCapsule()
+                    try? await Task.sleep(for: .milliseconds(850))
+                }
+                check(appWindow.isVisible && appWindow.alphaValue == 1 && appCapsule.isExpanded
+                      && appWindow.frame.size == CGSize(width: 900, height: 35)
+                      && appCapsule.subviews.count == (appRoot.desktopTheme == .smoke ? 2 : 1),
+                      "production \(scene): the expanded window must show the complete configured interface")
                 appController.toggleDesktopCapsule()
-                check(!appWindow.isVisible && !appCapsule.isExpanded && appWindow.ignoresMouseEvents,
-                      "production \(scene): manual hiding must remove the complete window")
+                check(appWindow.isVisible && appWindow.alphaValue == 0 && !appCapsule.isExpanded && appWindow.ignoresMouseEvents,
+                      "production \(scene): a manually hidden window must be transparent and pass clicks through")
                 appController.toggleDesktopCapsule()
                 try? await Task.sleep(for: .milliseconds(850))
                 check(appCapsule.isExpanded && appRoot.scene == initialScene
-                      && appWindow.isVisible && appWindow.frame.size == appCapsule.expandedSize
+                      && appWindow.isVisible && appWindow.alphaValue == 1 && appWindow.frame.size == appCapsule.expandedSize
                       && appWindow.frame.origin == initialOrigin,
                       "production \(scene): manual activation must expand to configured dimensions while preserving scene and origin")
                 check(appController.mirrorPixelSize == CGSize(width: 1_800, height: 70)
@@ -261,21 +274,22 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                     check(appWindow.ignoresMouseEvents, "production hardware content must pass through pointer events")
                 }
                 appController.toggleDesktopCapsule()
-                check(!appWindow.isVisible && !appCapsule.isExpanded && appRoot.scene == initialScene,
+                check(appWindow.isVisible && appWindow.alphaValue == 0 && !appCapsule.isExpanded && appRoot.scene == initialScene,
                       "production \(scene): manual hiding must preserve the scene")
                 appController.setMirrorPixelSize(CGSize(width: 2_000, height: 140))
-                check(!appWindow.isVisible && appWindow.frame.size == CGSize(width: 1_000, height: 70)
+                check(appWindow.isVisible && appWindow.alphaValue == 0 && appWindow.frame.size == CGSize(width: 1_000, height: 70)
                       && appWindow.frame.origin == initialOrigin,
                       "production \(scene): changing settings while hidden must preserve the position and hidden state")
                 appController.toggleDesktopCapsule()
                 try? await Task.sleep(for: .milliseconds(850))
-                check(appWindow.isVisible && appCapsule.isExpanded && appRoot.scene == initialScene
+                check(appWindow.isVisible && appWindow.alphaValue == 1 && appCapsule.isExpanded && appRoot.scene == initialScene
                       && appWindow.frame.size == CGSize(width: 1_000, height: 70) && appWindow.frame.origin == initialOrigin,
                       "production \(scene): manual activation must restore the configured interface")
                 if !TouchBarHardwareCapability.usesSoftwareWorkspace {
                     check(appWindow.ignoresMouseEvents, "manual activation must retain hardware mouse pass-through")
                 }
                 samples.append(["phase": "production_controller", "scene": String(describing: scene),
+                                "started_expanded": startedExpanded, "window_alpha": appWindow.alphaValue,
                                 "software_fallback": TouchBarHardwareCapability.usesSoftwareWorkspace,
                                 "width": appWindow.frame.width, "height": appWindow.frame.height,
                                 "visible": appWindow.isVisible, "pointer_transparent": appWindow.ignoresMouseEvents])
@@ -293,7 +307,11 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
             blockers.append("macOS is at the login/lock screen; unlock the desktop to verify a real full-screen Space")
         } else {
             controller.start()
-            controller.setExpanded(true, animated: false)
+            let spaceMonitor = DesktopSpaceVisibilityMonitor(window: panel) { expanded in
+                controller.setExpanded(expanded)
+            }
+            spaceMonitor.start()
+            defer { spaceMonitor.stop() }
             let fixture = Process()
             fixture.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             let fixtureReport = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/private/tmp/report.json")
@@ -316,11 +334,12 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                 })
                 check(enteredFullScreen, "fixture must enter a real macOS full-screen Space")
                 try? await Task.sleep(for: .milliseconds(650))
-                check(controller.isExpanded && panel.isVisible && panel.frame.size == CGSize(width: 1_000, height: 70),
-                      "entering full screen must preserve the visible interface and configured geometry")
+                check(!controller.isExpanded && panel.isVisible && panel.alphaValue == 0
+                      && panel.ignoresMouseEvents && panel.frame.size == CGSize(width: 1_000, height: 70),
+                      "entering full screen must make the window transparent at its configured size")
                 samples.append(["phase": "full_screen", "width": panel.frame.width, "height": panel.frame.height,
-                                "visible": panel.isVisible,
-                                "system_full_screen": NSApp.currentSystemPresentationOptions.contains(.fullScreen),
+                                "window_alpha": panel.alphaValue, "ordered": panel.isVisible,
+                                "fixture_full_screen": enteredFullScreen,
                                 "frontmost_pid": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0,
                                 "system_options": NSApp.currentSystemPresentationOptions.rawValue])
                 if enteredFullScreen {
@@ -331,11 +350,12 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                         startup.start()
                         if let startupWindow = startup.window, let host = startupWindow.contentView,
                            let startupCapsule = findCapsule(in: host) {
-                            check(startupWindow.isVisible && startupCapsule.isExpanded
+                            check(startupWindow.isVisible && startupWindow.alphaValue == 0 && !startupCapsule.isExpanded
+                                  && startupWindow.ignoresMouseEvents
                                   && startupWindow.frame.size == startupCapsule.expandedSize,
-                                  "production \(scene): launching in full screen must show the configured interface")
+                                  "production \(scene): launching in full screen must make the configured window transparent")
                             samples.append(["phase": "full_screen_startup", "scene": String(describing: scene),
-                                            "visible": startupWindow.isVisible, "width": startupWindow.frame.width])
+                                            "window_alpha": startupWindow.alphaValue, "width": startupWindow.frame.width])
                         } else { failures.append("full-screen startup view hierarchy is missing") }
                         startup.stop()
                         startup.window?.orderOut(nil)
@@ -344,12 +364,12 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                     WorkspacePreferences.startupScene = savedStartup
                     TouchBarPreferences.mirrorPixelSize = savedPixels
                 }
-                controller.setExpanded(false, animated: false)
                 wake.wakeView.button.performClick(nil)
                 try? await Task.sleep(for: .milliseconds(1_200))
-                check(controller.isExpanded && panel.isVisible && panel.frame.width == 1_000,
+                check(controller.isExpanded && panel.isVisible && panel.alphaValue == 1 && panel.frame.width == 1_000,
                       "manual activation in full screen must show the complete interface")
-                controller.setExpanded(false, animated: false)
+                check(hideButton?.accessibilityPerformPress() == true && panel.isVisible && panel.alphaValue == 0,
+                      "the hide button must make the window transparent again in the same full-screen Space")
                 for _ in 0..<110 {
                     try? await Task.sleep(for: .milliseconds(100))
                     if fixtureEvents().contains(where: { $0["phase"] as? String == "exited" }) { break }
@@ -358,14 +378,10 @@ final class CapsuleValidationDelegate: NSObject, NSApplicationDelegate, NSWindow
                     $0["phase"] as? String == "exited" && $0["window_full_screen"] as? Bool == false
                 }), "fixture must return to a normal desktop Space")
                 try? await Task.sleep(for: .milliseconds(650))
-                check(!controller.isExpanded && !panel.isVisible && panel.frame.size == CGSize(width: 1_000, height: 70),
-                      "leaving full screen must preserve a manually hidden interface")
-                samples.append(["phase": "returned_to_desktop", "visible": panel.isVisible,
+                check(controller.isExpanded && panel.isVisible && panel.alphaValue == 1 && panel.frame.size == CGSize(width: 1_000, height: 70),
+                      "returning to the desktop must automatically restore the opaque window and configured geometry")
+                samples.append(["phase": "returned_to_desktop", "window_alpha": panel.alphaValue,
                                 "width": panel.frame.width])
-                wake.wakeView.button.performClick(nil)
-                try? await Task.sleep(for: .milliseconds(850))
-                check(controller.isExpanded && panel.isVisible && panel.frame.size == CGSize(width: 1_000, height: 70),
-                      "manual activation after leaving full screen must restore the complete interface")
                 if let identifier = fixtureEvents().last?["pid"] as? Int32 {
                     NSRunningApplication(processIdentifier: identifier)?.terminate()
                 }

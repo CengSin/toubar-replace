@@ -18,7 +18,7 @@
   - 唤醒视图：`DesktopWakeRegionView`、`DesktopWakeButton`，Accessibility Identifier：`ToubarReplace.TouchBar.Wake`
   - 物理隐藏键 Accessibility Identifier：`ToubarReplace.TouchBar.Collapse`，图标：`chevron.down`
 - 子功能：
-  - 完整隐藏：状态栏菜单或物理隐藏键控制窗口通过 `orderOut` 退出显示；保留原场景、配置尺寸与位置
+  - 进入全屏、选择状态栏菜单的隐藏操作或点击隐藏键时，窗口留在原位置并变为全透明。轻触 Touch Bar 唤醒时恢复窗口透明度，并按配置尺寸展开原场景。
   - 整条盲点唤醒：隐藏时主区、Escape 槽统一为唤醒入口，系统控制区让位于全宽唤醒层；激活后恢复原来的镜像或 Workspace 场景
   - 唤醒操作隔离：唤醒键在抬手时激活界面；动画完成且唤醒触摸结束后恢复正常物理控件，期间由唤醒层承接触摸
   - 全屏自动显隐：进入全屏应用或分屏全屏 Space 自动隐藏，返回普通桌面或切换到其他普通桌面后自动显示；多屏按界面所在屏幕的当前 Space 判断

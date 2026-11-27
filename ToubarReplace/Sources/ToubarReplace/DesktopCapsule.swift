@@ -232,7 +232,7 @@ final class DesktopCapsuleController {
         view.setExpanded(expanded)
         let target = view.expandedSize
         if !expanded {
-            window?.orderOut(nil)
+            window?.alphaValue = 0
             animationTimer?.invalidate()
             animationTimer = nil
             width.target = target.width
@@ -244,30 +244,28 @@ final class DesktopCapsuleController {
             if changed || wasAnimating { onAnimationCompleted?() }
             return
         }
-        if changed && animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if changed && shouldAnimate {
             width = DesktopCapsuleSpring(value: min(DesktopCapsuleLayout.initialRevealWidth, target.width))
             height = DesktopCapsuleSpring(value: target.height)
         }
         width.target = target.width
         height.target = target.height
         let shouldNotifyCompletion = changed || wasAnimating || !width.isSettled || !height.isSettled
-        if !animated || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if !shouldAnimate {
             width.settle()
             height.settle()
             animationTimer?.invalidate()
             animationTimer = nil
-            applyFrame()
-            window?.orderFrontRegardless()
-            if changed { onExpansionChanged?(true) }
-            if shouldNotifyCompletion { onAnimationCompleted?() }
-            return
         }
         applyFrame()
-        window?.orderFrontRegardless()
-        if changed { onExpansionChanged?(true) }
+        if let window, !window.isVisible { window.orderFrontRegardless() }
+        if changed {
+            window?.alphaValue = 1
+            onExpansionChanged?(true)
+        }
         guard animationTimer == nil else { return }
         guard !width.isSettled || !height.isSettled else {
-            applyFrame()
             if shouldNotifyCompletion { onAnimationCompleted?() }
             return
         }

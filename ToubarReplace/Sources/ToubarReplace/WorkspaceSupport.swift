@@ -214,9 +214,25 @@ enum WorkspacePreferences {
     }
 
     static func rememberSeenQuotaProviders(_ pools: [QuotaPool]) {
+        let hidden = hiddenQuotaProviderIDs
+        let migrated = migratedHiddenQuotaProviderIDs(hidden, providers: pools.map(\.provider))
+        if migrated != hidden {
+            hiddenQuotaProviderIDs = migrated
+        }
         seenQuotaProviders = pools.map {
             QuotaProviderChoice(id: $0.provider, title: $0.title)
         }
+    }
+
+    static func migratedHiddenQuotaProviderIDs(
+        _ hiddenIDs: Set<String>,
+        providers: [QuotaProviderID]
+    ) -> Set<String> {
+        let hiddenAccounts = providers.filter {
+            $0.rawValue.contains("@") && hiddenIDs.contains($0.family.rawValue)
+        }
+        return hiddenIDs.subtracting(hiddenAccounts.map { $0.family.rawValue })
+            .union(hiddenAccounts.map(\.rawValue))
     }
 
 

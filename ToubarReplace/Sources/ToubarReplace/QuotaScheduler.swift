@@ -32,8 +32,18 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
         .copilot, .opencode, .ollama, .devin, .openrouter,
     ]
 
+    var family: QuotaProviderID {
+        let provider = rawValue.prefix { $0 != "@" }.lowercased()
+        return Self.preferredDisplayOrder.first { family in
+            let name = family.rawValue.lowercased()
+            let prefix = family == .grokBuild ? "grok" : name
+            return provider == name || provider == prefix
+                || provider.hasPrefix(prefix + ".") || provider.hasPrefix(prefix + "-")
+        } ?? QuotaProviderID(provider)
+    }
+
     var displayName: String {
-        switch self {
+        switch family {
         case .grokBuild:
             return "Grok Build"
         case .grokBots:
@@ -57,13 +67,13 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
         case .openrouter:
             return "OpenRouter"
         default:
-            return Self.titleCased(rawValue)
+            return Self.titleCased(family.rawValue)
         }
     }
 
 
     var iconResourceName: String? {
-        switch self {
+        switch family {
         case .codex:
             return "codex"
         case .grokBuild:
@@ -94,7 +104,7 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     var placeholderSymbolName: String { "chart.bar.fill" }
 
     var bundleIdentifiers: [String] {
-        switch self {
+        switch family {
         case .codex:
             return ["com.openai.codex"]
         case .grokBuild, .grokBots:
@@ -111,7 +121,7 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     }
 
     var applicationNames: [String] {
-        switch self {
+        switch family {
         case .codex:
             return ["Codex"]
         case .grokBuild, .grokBots:
@@ -136,7 +146,7 @@ struct QuotaProviderID: Hashable, Codable, Sendable, RawRepresentable {
     }
 
     var fallbackURL: URL? {
-        switch self {
+        switch family {
         case .grokBots, .grokBuild:
             return URL(string: "https://grok.com")
         case .openrouter:

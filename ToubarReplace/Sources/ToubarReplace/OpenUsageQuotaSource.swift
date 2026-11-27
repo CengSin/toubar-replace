@@ -32,10 +32,22 @@ enum OpenUsageLimitsMapper {
         var pools: [QuotaPool] = []
         for key in envelope.providers.keys.sorted() {
             guard let snapshot = envelope.providers[key] else { continue }
-            if isFamily(key, "cursor") {
-                if let bots = extractPool(
-                    provider: .grokBots,
-                    title: QuotaProviderID.grokBots.displayName,
+            let accountSuffix = key.firstIndex(of: "@").map { key[$0...] }
+            let id = QuotaProviderID(key.lowercased())
+            let family = id.family
+            let provider = accountSuffix == nil ? family : id
+            let title = snapshotTitle(snapshot, fallback: provider)
+            if family == .cursor {
+                let botsProvider = accountSuffix.map {
+                    QuotaProviderID(QuotaProviderID.grokBots.rawValue + $0.lowercased())
+                } ?? .grokBots
+                let botsTitle = accountSuffix == nil
+                    ? botsProvider.displayName
+                    : "\(botsProvider.displayName) · \(title)"
+                if snapshot.resources["grokBot"]?.kind == "consumption",
+                   let bots = extractPool(
+                    provider: botsProvider,
+                    title: botsTitle,
                     snapshot: snapshot,
                     includingKeys: ["grokBot"],
                     excludingKeys: [],
@@ -43,25 +55,13 @@ enum OpenUsageLimitsMapper {
                 ) {
                     pools.append(bots)
                 }
-                if let cursor = extractPool(
-                    provider: .cursor,
-                    title: snapshotTitle(snapshot, fallback: .cursor),
-                    snapshot: snapshot,
-                    includingKeys: nil,
-                    excludingKeys: ["grokBot"],
-                    now: now
-                ) {
-                    pools.append(cursor)
-                }
-                continue
             }
-            let provider = canonicalProviderID(key)
             if let pool = extractPool(
                 provider: provider,
-                title: snapshotTitle(snapshot, fallback: provider),
+                title: title,
                 snapshot: snapshot,
                 includingKeys: nil,
-                excludingKeys: [],
+                excludingKeys: family == .cursor ? ["grokBot"] : [],
                 now: now
             ) {
                 pools.append(pool)
@@ -122,14 +122,15 @@ enum OpenUsageLimitsMapper {
         excludingKeys: Set<String>,
         now: Date
     ) -> QuotaPool? {
+        let isOpenRouter = provider.family == .openrouter
         let hasConsumption = snapshot.resources.values.contains { $0.kind == "consumption" }
-        if provider == .openrouter || !hasConsumption {
+        if isOpenRouter || !hasConsumption {
             let balanceResource = snapshot.resources.keys.sorted().compactMap { snapshot.resources[$0] }
                 .first { $0.kind == "balance" && ($0.available ?? $0.remaining)?.isFinite == true }
             var balance: QuotaBalance?
             if let resource = balanceResource, let amount = resource.available ?? resource.remaining {
                 balance = QuotaBalance(amount: amount, unit: resource.unit ?? "", caption: "余额")
-            } else if provider == .openrouter, let credits = snapshot.resources["credits"] {
+            } else if isOpenRouter, let credits = snapshot.resources["credits"] {
                 let amount = credits.remaining ?? credits.limit.flatMap { limit in credits.used.map { limit - $0 } }
                 if let amount, amount.isFinite {
                     balance = QuotaBalance(amount: amount, unit: credits.unit ?? "", caption: "额度")
@@ -139,7 +140,7 @@ enum OpenUsageLimitsMapper {
                 return QuotaPool(provider: provider, windows: [], fetchedAt: snapshot.fetchedAt ?? now,
                                  title: title, balance: balance)
             }
-            if provider == .openrouter { return nil }
+            if isOpenRouter { return nil }
         }
         var byKind: [QuotaWindowKind: (window: QuotaWindow, key: String, unit: String?)] = [:]
         for key in snapshot.resources.keys.sorted() {
@@ -184,20 +185,6 @@ enum OpenUsageLimitsMapper {
         return .weekly
     }
 
-    private static func canonicalProviderID(_ providerID: String) -> QuotaProviderID {
-        if isFamily(providerID, "grok") { return .grokBuild }
-        if isFamily(providerID, "codex") { return .codex }
-        if isFamily(providerID, "claude") { return .claude }
-        if isFamily(providerID, "cursor") { return .cursor }
-        if isFamily(providerID, "antigravity") { return .antigravity }
-        if isFamily(providerID, "copilot") { return .copilot }
-        if isFamily(providerID, "opencode") { return .opencode }
-        if isFamily(providerID, "ollama") { return .ollama }
-        if isFamily(providerID, "devin") { return .devin }
-        if isFamily(providerID, "openrouter") { return .openrouter }
-        return QuotaProviderID(providerID.lowercased())
-    }
-
     private static func snapshotTitle(
         _ snapshot: OpenUsageProviderSnapshot,
         fallback: QuotaProviderID
@@ -215,10 +202,10 @@ enum OpenUsageLimitsMapper {
     private static func sortPools(_ pools: [QuotaPool]) -> [QuotaPool] {
         pools.sorted { left, right in
             let leftRank = QuotaProviderID.preferredDisplayOrder.firstIndex(
-                of: left.provider
+                of: left.provider.family
             ) ?? Int.max
             let rightRank = QuotaProviderID.preferredDisplayOrder.firstIndex(
-                of: right.provider
+                of: right.provider.family
             ) ?? Int.max
             if leftRank != rightRank {
                 return leftRank < rightRank
@@ -297,13 +284,6 @@ enum OpenUsageLimitsMapper {
             resetAt: resetAt,
             cycle: cycle > 0 ? cycle : defaultCycle
         )
-    }
-
-    private static func isFamily(_ providerID: String, _ family: String) -> Bool {
-        let id = providerID.lowercased()
-        return id == family
-            || id.hasPrefix(family + ".")
-            || id.hasPrefix(family + "-")
     }
 
     private static func double(_ value: Any?) -> Double? {

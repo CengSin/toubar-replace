@@ -923,21 +923,12 @@ enum ToubarReplaceSmokeTest {
             failures: &failures
         )
         expect(
-            WorkspaceTouchBarStyle.providerIcon(for: .codex) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .grokBuild) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .grokBots) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .cursor) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .antigravity) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .openrouter) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .copilot) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .opencode) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .ollama) != nil
-                && WorkspaceTouchBarStyle.providerIcon(for: .devin) != nil
-                && QuotaProviderID.antigravity.iconResourceName
-                    == "antigravity"
-                && QuotaProviderID.openrouter.iconResourceName
-                    == "openrouter"
-                && QuotaProviderID.grokBots.iconResourceName == "grokBots",
+            QuotaProviderID.preferredDisplayOrder.allSatisfy { provider in
+                guard let name = provider.iconResourceName,
+                      let icon = WorkspaceTouchBarStyle.bundledIcon(named: name)
+                else { return false }
+                return WorkspaceTouchBarStyle.providerIcon(for: provider) === icon
+            },
             "quota providers must ship matching brand icons",
             failures: &failures
         )
@@ -1145,6 +1136,87 @@ enum ToubarReplaceSmokeTest {
             failures.append(
                 "OpenUsage fixture JSON failed to decode: \(error)"
             )
+        }
+        let accountFixture = """
+        {
+          "schema": "openusage.limits.v2",
+          "providers": {
+            "codex@a1": {
+              "displayName": "ChatGPT · Personal",
+              "resources": {"weekly": {"kind": "consumption", "limit": 100, "remaining": 70}}
+            },
+            "codex@b2": {
+              "displayName": "ChatGPT · Work",
+              "resources": {"weekly": {"kind": "consumption", "limit": 100, "remaining": 90}}
+            },
+            "cursor@c3": {
+              "displayName": "Cursor · Work",
+              "resources": {
+                "autoUsage": {"kind": "consumption", "limit": 100, "remaining": 60},
+                "grokBot": {"kind": "consumption", "limit": 100, "remaining": 80}
+              }
+            },
+            "grok@d4": {
+              "displayName": "Grok · Personal",
+              "resources": {"weekly": {"kind": "consumption", "limit": 100, "remaining": 50}}
+            },
+            "antigravity@e5": {
+              "resources": {"geminiSession": {"kind": "consumption", "limit": 100, "remaining": 40, "windowSeconds": 18000}}
+            },
+            "openrouter@f6": {
+              "resources": {
+                "balance": {"kind": "balance", "unit": "usd", "available": 12},
+                "keyLimit": {"kind": "consumption", "limit": 100, "remaining": 70}
+              }
+            }
+          }
+        }
+        """
+        do {
+            let envelope = try OpenUsageLimitsMapper.decodeEnvelope(from: Data(accountFixture.utf8))
+            let now = Date()
+            let pools = OpenUsageLimitsMapper.pools(from: envelope, now: now)
+            let expectedIcons = [
+                ("grok@d4", "grokBuild"), ("grokBots@c3", "grokBots"),
+                ("codex@a1", "codex"), ("codex@b2", "codex"), ("cursor@c3", "cursor"),
+                ("antigravity@e5", "antigravity"), ("openrouter@f6", "openrouter"),
+            ]
+            expect(
+                pools.map(\.provider.rawValue) == expectedIcons.map { $0.0 }
+                    && zip(pools, expectedIcons).allSatisfy { pool, expected in
+                        guard let icon = WorkspaceTouchBarStyle.bundledIcon(named: expected.1)
+                        else { return false }
+                        return WorkspaceTouchBarStyle.providerIcon(for: pool.provider) === icon
+                    },
+                "account-scoped providers must retain distinct IDs and resolve bundled brand icons",
+                failures: &failures
+            )
+            let openRouter = pools.last
+            expect(
+                openRouter?.windows.isEmpty == true
+                    && openRouter?.balance?.valueText == "$12.00"
+                    && pools.first { $0.provider.rawValue == "cursor@c3" }?.windows.first?.remaining == 60
+                    && pools.first { $0.provider.rawValue == "grokBots@c3" }?.windows.first?.remaining == 80,
+                "account-scoped OpenRouter and Cursor must retain their provider-specific quota rules",
+                failures: &failures
+            )
+            let providers = pools.map(\.provider)
+            let hidden = WorkspacePreferences.migratedHiddenQuotaProviderIDs(
+                ["codex", "grokBots", "claude", "grok@d4"], providers: providers
+            )
+            expect(
+                hidden == ["codex@a1", "codex@b2", "grokBots@c3", "claude", "grok@d4"]
+                    && WorkspacePreferences.migratedHiddenQuotaProviderIDs(
+                        hidden.subtracting(["codex@a1"]), providers: providers
+                    ) == hidden.subtracting(["codex@a1"])
+                    && QuotaBoardState.from(
+                        pools: pools, now: now, hiddenProviderIDs: ["codex@a1"]
+                    ).groups.filter { $0.provider.family == .codex }.map(\.title) == ["ChatGPT · Work"],
+                "legacy hidden providers must migrate to account IDs and allow independent visibility",
+                failures: &failures
+            )
+        } catch {
+            failures.append("OpenUsage account fixture failed to decode: \(error)")
         }
         for (resources, expected) in [
             (#"{"balance":{"kind":"balance","unit":"usd","available":0}}"#, "$0.00"),
